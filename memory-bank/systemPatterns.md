@@ -9,7 +9,7 @@ Monorepo (npm workspaces): `packages/backend` (Fastify + SQLite + Worker Threads
 - `IModule` interface: `{ id, name, version, dependencies?, register(app, options), onEnable?, onDisable?, onShutdown? }`.
 - `module.registry.ts` holds all modules; `module.loader.ts` reads enabled state from `modules` DB table and calls `register()` for enabled ones.
 - All modules registered in `modules/index.ts` → `registerAllModules()` (called in `app.ts` **before** `moduleLoader.loadAll(app)`).
-- Currently registered: `plc-gateway`, `recipe`.
+- Currently registered: `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`.
 
 ### App Bootstrap (`app.ts` → `server.ts`)
 Order: `getDb()` → `runMigrations(db)` → `initializeDatabase(db)` (seed) → cors → websocket → authPlugin → `/api/health` (public) → authRoutes (`/api/auth`) → `wsManager.register(app)` → `registerAllModules()` → `moduleLoader.loadAll(app)` → static frontend + SPA fallback (non-`/api`, non-`/ws` GET → `index.html`).
@@ -49,19 +49,35 @@ PLC/OPC UA → Worker Thread → MessagePort → WorkerManager →
      quality='bad' → NULL value + quality='bad')
 ```
 
+### Work Order (`modules/work-order/`)
+- `work-order.service.ts`: CRUD + `generateOrderNumber()` (`WO-YYYYMMDD-NNN`, gün bazlı sıra) + `TRANSITIONS` state machine (draft→active→paused→completed→archived) + `canTransition` guard. `COLLECTING_STATUSES = ['active','paused']` (DataCollector bunlara yazar).
+- `work-order.routes.ts`: `/api/work-orders` — list (status/recipeId filter), get, create (draft), PUT notes (draft only), DELETE (draft only), POST `:id/activate|pause|resume|complete|archive` (409 `INVALID_TRANSITION`), GET `:id/data` (tagIds + limit). Transitions → `dataCollector.onStatusChanged` + audit + WS `workorder:changed`.
+- `data-collector.service.ts`: subscribes `workerManager.onData`. Resolves tag set per collecting WO = union of `recipe_tags.tag_id` + `dashboard_layout` widget `tagId`/`tagIds`. 1s **transaction batching** flush; `quality='bad'` → value NULL + quality 'bad'; STRING → `value_text`. Boot'ta active/paused WOs için resume.
+
+### User Management (`modules/user-management/`)
+- `user.service.ts`: bcrypt, last-admin guard (rol değiştirme/silme engeli), create/reset'te `must_change_password=1`.
+- `user.routes.ts`: `/api/users` admin-only CRUD. `permission.routes.ts`: `/api/permissions` GET (role_permissions + modules + types) / PUT (module×permission toggle). **`role_permissions` şu an yalnızca `/api/users`+`/api/permissions`'ı (admin-only) kapsar — diğer modüllerde henüz enforce EDİLMEZ.**
+
+### System Settings (`modules/system-settings/`)
+- `settings.service.ts` (key-value get/set), `archive.service.ts` (`archiveDatabase`: interlock — active/paused WO varsa `WORK_ORDER_ACTIVE` 409; WAL checkpoint + full copy `mes_data_<ts>.db`; yalnız `data_log` silinir), `settings.routes.ts` — `/api/settings` (GET/PUT), `/api/modules` (GET + PUT enable/disable → `restartRequired: true`), `/api/archive` (GET status: sizeMb/warnExceeded/activeWorkOrders/canArchive + POST run), `/api/audit` (paged query).
+
 ### API Conventions
-- Standard error envelope: `{ error: { code, message, details } }`. Codes: 400 VALIDATION_ERROR, 401 UNAUTHORIZED/TOKEN_EXPIRED, 403 FORBIDDEN, 404 NOT_FOUND, 409 DUPLICATE_NAME/WORK_ORDER_ACTIVE, 502 PLC_CONNECTION_FAILED/OPCUA_SESSION_FAILED/OPCUA_CERT_UNTRUSTED, 500 INTERNAL_ERROR.
+- Standard error envelope: `{ error: { code, message, details } }`. Codes: 400 VALIDATION_ERROR, 401 UNAUTHORIZED/TOKEN_EXPIRED, 403 FORBIDDEN, 404 NOT_FOUND, 409 DUPLICATE_NAME/WORK_ORDER_ACTIVE/INVALID_TRANSITION/RECIPE_IN_USE, 502 PLC_CONNECTION_FAILED/OPCUA_SESSION_FAILED/OPCUA_CERT_UNTRUSTED, 500 INTERNAL_ERROR.
 - Route files per module (`*.routes.ts`) + service files (`*.service.ts`); routes registered under `/api/...` prefixes inside each module's `register()`.
 
 ## Frontend Patterns
 
 ### Structure
 - `core/`: Layout (Sidebar+Header+Content), ThemeProvider (dark/light), LanguageProvider (TR/EN), ProtectedRoute, ErrorBoundary, common components; hooks (`useAuth`, `useWebSocket`, `useTheme`, `useLanguage`); services (`api.ts` fetch wrapper w/ error-envelope handling, `ws.ts` WS client w/ exponential-backoff reconnect 1s→30s + token refresh); Zustand stores (`authStore`, `appStore`); i18n (`locales/tr.json`, `en.json`); styles (`index.css`, `variables.css` CSS custom properties, `themes/dark.css`, `light.css`).
-- `modules/`: feature folders per domain (`auth`, `dashboard`, `plc-gateway`, `recipe`) with `components/`, `hooks/`, `services/` subfolders.
+- `modules/`: feature folders per domain (`auth`, `dashboard`, `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`) with `components/`, `hooks/`, `services/` subfolders.
 
 ### Routing (`App.tsx`)
-- Lazy-loaded pages via `React.lazy` + `Suspense`. Public: `/login`. Protected (ProtectedRoute → Layout): `/` DashboardPage, `/dashboard/:workOrderId`, `/plc`, `/plc/:id/tags`, `/plc/:id/monitor` (LiveMonitor), `/plc/read-write`, `/recipes`, `/recipes/:id/dashboard` (DashboardEditor). `*` → Navigate to `/`.
+- Lazy-loaded pages via `React.lazy` + `Suspense`. Public: `/login`. Protected (ProtectedRoute → Layout): `/` DashboardPage (DashboardSelector), `/dashboard/:workOrderId` (DashboardView), `/plc`, `/plc/:id/tags`, `/plc/:id/monitor` (LiveMonitor), `/plc/read-write`, `/recipes`, `/recipes/:id/dashboard` (DashboardEditor), `/work-orders` (WorkOrderList), `/users` (UserList), `/settings` (SettingsPage), `/audit` (AuditLogViewer). `*` → Navigate to `/`.
 - `useAuthRestore()` runs before routes to restore session.
+
+### Dashboard (Faz 5)
+- `useLiveValues(plcIds[])` hook: multi-PLC `subscribe:plc`, tagId→value map. `DashboardView`: view-only absolute-position grid (12 cols, rowHeight 72), renders recipe `dashboard_layout.widgets` live. `DashboardSelector`: active+paused WO cards, WS `workorder:changed` ile canlı tazelenir.
+- Widget render components: Numeric/Gauge (custom SVG arc)/Trend (Recharts)/Status (LED)/Table. `dashboard/styles/dashboard.css` (`wv-*`).
 
 ### State & Data
 - Zustand for auth + global app state (no boilerplate, TS-first).

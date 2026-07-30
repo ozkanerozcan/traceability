@@ -81,6 +81,80 @@
     "displayName": "Display Name"
   },
   "poweredBy": "Powered by OE",
+  "workOrder": {
+    "add": "New Work Order",
+    "orderNumber": "Order No",
+    "recipe": "Recipe",
+    "notes": "Notes",
+    "recipeRequired": "A recipe must be selected",
+    "noRecipesHint": "Create a recipe first from the Recipes page to start a work order.",
+    "noWorkOrders": "No work orders yet. Create one to get started.",
+    "notFound": "Work order not found.",
+    "allStatuses": "All Statuses",
+    "startedAt": "Started",
+    "start": "Start",
+    "pause": "Pause",
+    "resume": "Resume",
+    "complete": "Complete",
+    "archive": "Archive",
+    "delete": "Delete Work Order",
+    "deleteConfirm": "Are you sure you want to delete work order {{name}}?",
+    "status": {
+      "draft": "Draft",
+      "active": "Active",
+      "paused": "Paused",
+      "completed": "Completed",
+      "archived": "Archived"
+    }
+  },
+  "dashboard": {
+    "noActive": "There are no active or paused work orders right now. Start one from the Work Orders page.",
+    "noWidgets": "This recipe's dashboard has no widgets. Add some via Recipe → Edit Dashboard.",
+    "waitingData": "Waiting for live data..."
+  },
+  "users": {
+    "add": "Add User",
+    "edit": "Edit User",
+    "delete": "Delete User",
+    "deleteConfirm": "Are you sure you want to delete the user {{name}}?",
+    "you": "you",
+    "newPassword": "New Password",
+    "fillRequired": "Username and password are required",
+    "permissions": "Operator Permissions",
+    "permissionsHint": "Configure what the operator role can do in each module.",
+    "perm": {
+      "view": "View",
+      "create": "Create",
+      "edit": "Edit",
+      "delete": "Delete",
+      "manage": "Manage"
+    }
+  },
+  "settings": {
+    "branding": "Branding",
+    "companyName": "Company Name",
+    "showPoweredBy": "Show \"Powered by OE\"",
+    "modules": "Module Manager",
+    "modulesHint": "Toggle modules on or off. Changes take effect after a server restart.",
+    "restartRequired": "Change will take effect after a server restart",
+    "archive": "Database Archiving",
+    "archiveSizeHint": "Warning threshold: {{warn}} GB",
+    "archiveWarn": "Database size exceeded the warning threshold — archiving is recommended.",
+    "archiveBlocked": "Cannot archive while {{count}} active/paused work order(s) exist.",
+    "archiveNow": "Archive Now",
+    "archiveConfirm": "A full copy of the current database will be archived and only the measurement history (data_log) will be cleared. Configuration and work order records are preserved. Continue?",
+    "archiveDone": "Archiving complete — {{count}} records cleared"
+  },
+  "audit": {
+    "time": "Time",
+    "user": "User",
+    "action": "Action",
+    "entity": "Entity",
+    "details": "Details",
+    "total": "{{total}} entries total",
+    "prev": "Previous",
+    "next": "Next"
+  },
   "recipe": {
     "addRecipe": "Add Recipe",
     "editRecipe": "Edit Recipe",

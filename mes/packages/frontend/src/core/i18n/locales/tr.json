@@ -81,6 +81,80 @@
     "displayName": "Görünen Ad"
   },
   "poweredBy": "Powered by OE",
+  "workOrder": {
+    "add": "İş Emri Oluştur",
+    "orderNumber": "İş Emri No",
+    "recipe": "Reçete",
+    "notes": "Notlar",
+    "recipeRequired": "Bir reçete seçilmelidir",
+    "noRecipesHint": "İş emri oluşturmak için önce Reçeteler sayfasından bir reçete tanımlayın.",
+    "noWorkOrders": "Henüz iş emri yok. Başlamak için iş emri oluşturun.",
+    "notFound": "İş emri bulunamadı.",
+    "allStatuses": "Tüm Durumlar",
+    "startedAt": "Başlangıç",
+    "start": "Başlat",
+    "pause": "Duraklat",
+    "resume": "Sürdür",
+    "complete": "Tamamla",
+    "archive": "Arşivle",
+    "delete": "İş Emrini Sil",
+    "deleteConfirm": "{{name}} numaralı iş emrini silmek istediğinize emin misiniz?",
+    "status": {
+      "draft": "Taslak",
+      "active": "Aktif",
+      "paused": "Duraklatıldı",
+      "completed": "Tamamlandı",
+      "archived": "Arşivlendi"
+    }
+  },
+  "dashboard": {
+    "noActive": "Şu anda aktif veya duraklatılmış iş emri yok. İş Emirleri sayfasından bir iş emri başlatabilirsiniz.",
+    "noWidgets": "Bu reçetenin dashboard'unda widget yok. Reçete → Dashboard Düzenle ile widget ekleyebilirsiniz.",
+    "waitingData": "Canlı veri bekleniyor..."
+  },
+  "users": {
+    "add": "Kullanıcı Ekle",
+    "edit": "Kullanıcı Düzenle",
+    "delete": "Kullanıcı Sil",
+    "deleteConfirm": "{{name}} adlı kullanıcıyı silmek istediğinize emin misiniz?",
+    "you": "siz",
+    "newPassword": "Yeni Şifre",
+    "fillRequired": "Kullanıcı adı ve şifre gereklidir",
+    "permissions": "Operatör Yetkileri",
+    "permissionsHint": "Operatör rolünün modüllerdeki yetkilerini yapılandırın.",
+    "perm": {
+      "view": "Görüntüle",
+      "create": "Oluştur",
+      "edit": "Düzenle",
+      "delete": "Sil",
+      "manage": "Yönet"
+    }
+  },
+  "settings": {
+    "branding": "Marka",
+    "companyName": "Firma Adı",
+    "showPoweredBy": "\"Powered by OE\" göster",
+    "modules": "Modül Yönetimi",
+    "modulesHint": "Modülleri açıp kapatabilirsiniz. Değişiklikler sunucu yeniden başlatıldığında etkinleşir.",
+    "restartRequired": "Değişiklik sunucu yeniden başlatıldığında etkinleşecek",
+    "archive": "Veritabanı Arşivleme",
+    "archiveSizeHint": "Uyarı eşiği: {{warn}} GB",
+    "archiveWarn": "Veritabanı boyutu uyarı eşiğini aştı — arşivleme önerilir.",
+    "archiveBlocked": "{{count}} aktif/duraklatılmış iş emri varken arşivleme yapılamaz.",
+    "archiveNow": "Şimdi Arşivle",
+    "archiveConfirm": "Mevcut veritabanının tam kopyası arşivlenecek ve yalnızca ölçüm geçmişi (data_log) temizlenecek. Konfigürasyon ve iş emri kayıtları korunur. Devam edilsin mi?",
+    "archiveDone": "Arşivleme tamamlandı — {{count}} kayıt temizlendi"
+  },
+  "audit": {
+    "time": "Zaman",
+    "user": "Kullanıcı",
+    "action": "İşlem",
+    "entity": "Varlık",
+    "details": "Detaylar",
+    "total": "Toplam {{total}} kayıt",
+    "prev": "Önceki",
+    "next": "Sonraki"
+  },
   "recipe": {
     "addRecipe": "Reçete Ekle",
     "editRecipe": "Reçete Düzenle",

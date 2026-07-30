@@ -1,6 +1,6 @@
 # Progress — OE MES
 
-> Status snapshot: **2026-07-29**. Source of truth for scope: `implementation_plan.md` (v3).
+> Status snapshot: **2026-07-30**. Source of truth for scope: `implementation_plan.md` (v3).
 
 ## Phase Status
 
@@ -8,11 +8,11 @@
 |-------|-------|--------|
 | Faz 1 | Temel Altyapı (core infra) | ✅ Complete |
 | Faz 2 | PLC Gateway (Modbus + OPC UA) | ✅ Complete |
-| Faz 3 | Reçete Yönetimi (recipes) | 🔶 In progress |
-| Faz 4 | İş Emri Yönetimi (work orders) | ⬜ Not started |
-| Faz 5 | Dashboard (widgets) | ⬜ Not started |
-| Faz 6 | Sistem Yönetimi (users/settings/archive/audit) | ⬜ Not started |
-| Faz 7 | PWA & Polish | ⬜ Not started |
+| Faz 3 | Reçete Yönetimi (recipes) | ✅ Complete |
+| Faz 4 | İş Emri Yönetimi (work orders) | ✅ Complete |
+| Faz 5 | Dashboard (widgets) | ✅ Complete |
+| Faz 6 | Sistem Yönetimi (users/settings/archive/audit) | ✅ Complete |
+| Faz 7 | PWA & Polish | 🔶 In progress |
 
 ## What Works (Faz 1)
 - [x] Monorepo structure (npm workspaces), backend Fastify+TS, frontend Vite+React+TS
@@ -40,17 +40,35 @@
 - [x] ReadWritePanel (manual read/write), LiveMonitor (live view without active WO)
 - [x] Runtime PLC add/remove; auto-start of `is_active` PLCs on server boot
 
-## In Progress (Faz 3)
+## What Works (Faz 3)
 - [x] Backend recipe module (`recipe.routes.ts`, `recipe.service.ts`) registered in module system
 - [x] Frontend: RecipeList, RecipeForm, TagSelect (tag mapping), DashboardEditor (react-grid-layout), recipe.service, recipe.css
-- [ ] Recipe protection rules (block delete/edit when in use by work orders)
-- [ ] End-to-end verification of dashboard layout save (`PUT /api/recipes/:id/dashboard`)
+- [x] Recipe protection rules: `DELETE` → 409 `RECIPE_IN_USE` when work orders exist (already present in `recipe.routes.ts`)
+- [x] `PUT /api/recipes/:id/dashboard` layout persistence (validated `{ widgets: [...] }` schema; verified in DashboardEditor save flow)
+
+## What Works (Faz 4 — İş Emri)
+- [x] Backend `work-order` module: `work-order.service` (CRUD + `WO-YYYYMMDD-NNN` auto-number + `TRANSITIONS` state machine), `work-order.routes` (list/get/create/update-notes/delete + activate/pause/resume/complete/archive + `GET /:id/data`), `data-collector.service` (worker data → `data_log`, 1s transaction batching, quality/value_text, boot resume). Registered in `modules/index.ts` (dependencies: recipe, plc-gateway).
+- [x] Transition guard: `canTransition` (draft→active→paused→completed→archived); invalid transitions → 409 `INVALID_TRANSITION`. Notes edit/delete only for draft (409 `WORK_ORDER_ACTIVE`).
+- [x] DataCollector tag resolution: union of `recipe_tags` + `dashboard_layout` widget `tagId`/`tagIds`; only writes for `active`/`paused` WOs; `quality='bad'` → value NULL + quality 'bad'; STRING → `value_text`.
+- [x] WS broadcast `workorder:changed` on transitions; audit entries for create/delete/transitions.
+- [x] Frontend `work-order` module: `workOrder.service`, `WorkOrderList` (status filter, per-state action buttons, delete draft, dashboard link), `WorkOrderForm` (recipe select + notes). Route `/work-orders`.
+- [x] Verified end-to-end: WO-20260730-001 created → activated (started_at set) → `data_log` rows written for widget-bound tags (tag 4,5,6, quality 'good').
+
+## What Works (Faz 5 — Dashboard)
+- [x] Widget render components: `NumericWidget`, `GaugeWidget` (custom SVG arc, no dep), `TrendWidget` (Recharts live line), `StatusWidget` (green/red LED), `TableWidget` (multi-tag values). Styles `dashboard/styles/dashboard.css` (`wv-*`).
+- [x] `useLiveValues(plcIds[])` hook — multi-PLC subscription, tagId→value map.
+- [x] `DashboardSelector` (home `/`): active+paused WO cards with WS live refresh (`workorder:changed`).
+- [x] `DashboardView` (`/dashboard/:workOrderId`): view-only absolute-position grid (12 cols, rowHeight 72) rendering recipe widgets with live data; subscribes to PLCs of widget-bound tags.
+- [x] `DashboardPage` router switch (selector vs view). Verified: Counter numeric + gauge widget live values render on active WO.
+
+## What Works (Faz 6 — Sistem Yönetimi)
+- [x] Backend `user-management`: `user.service` (bcrypt, last-admin guard, must_change_password on create/reset), `user.routes` (admin-only CRUD) + `permission.routes` (`/api/permissions` GET/PUT for role_permissions, module×permission).
+- [x] Backend `system-settings`: `settings.service` (key-value get/set), `module.service` (enable/disable), `archive.service` (interlock on active WOs → `WORK_ORDER_ACTIVE`; full DB copy `mes_data_<ts>.db`; clears only `data_log`), `settings.routes` (`/api/settings`, `/api/modules`, `/api/archive` GET status + POST run, `/api/audit` paged query).
+- [x] Frontend `admin.service` (users/permissions/settings/modules/archive/audit). Pages: `UserList` + `UserForm` + `PermissionEditor` (operator role module×permission checkbox matrix), `SettingsPage` (Branding + ModuleManager) + `ArchivePanel` (size + warn + interlock + confirm), `AuditLogViewer` (paged table, action badge variants). Routes `/users`, `/settings`, `/audit`.
+- [x] Verified: permission matrix grid renders; archive blocked while 1 active WO (interlock); audit shows login/create/start/stop/delete entries.
 
 ## Not Started
-- Faz 4: work-order CRUD, `WO-YYYYMMDD-NNN` numbering, status machine, DataCollector (transaction batching, quality/value_text), permissions
-- Faz 5: widget palette + config popup, Numeric/Gauge/Trend/Status/Table widgets, live updates, WO switching, recipe preview
-- Faz 6: user mgmt, operator permissions editor, settings panels, module manager, branding, DB archive (interlock: no active WO; clears only `data_log`), audit viewer
-- Faz 7: service worker, offline cache, manifest/icons, responsive polish, Docker optimization
+- Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 
 ## What Works (Frontend UI Revizyonu — 2026-07-29, Faz 7'den erken)
 - [x] Yeni tasarım dili: **amber accent (#fdc954 / light #d99e1a)**, cam yüzeyler (glass), yumuşak radius, katmanlı gölgeler, motion sistemi
@@ -77,9 +95,14 @@
 
 ## Known Issues / Gaps
 
-- Frontend route placeholders exist for pages not yet built (`/work-orders`, `/users`, `/settings`, `/audit` missing from App.tsx — noted as "Faz 4-6" comment).
-- `DashboardPage` exists but the widget system (Faz 5) isn't implemented.
-- No work-order backend module yet → DataCollector not yet writing `data_log`.
+- **Faz 7 (PWA & Polish)** remaining: offline cache strategy tuning, add-to-homescreen prompt, responsive polish, Docker production optimization. (Service worker already generated by vite-plugin-pwa; `public/icons/icon.svg` present.)
+- **Module enable/disable** via `/api/modules` requires a server restart to apply route changes (documented; `restartRequired: true` returned).
+- **Operator `role_permissions`** are editable via `/api/permissions` but are **not yet enforced** in other modules' route handlers (they only gate `/api/users` & `/api/permissions` which are admin-only). Enforcement wiring is a future hardening task.
+- `DashboardView` uses absolute-position grid at 12-col desktop scale; small screens don't yet reflow widgets (Faz 7 responsive polish).
+## Evolution Log
+- **2026-07-29:** Memory Bank initialized. Assessed: Faz 1–2 done, Faz 3 in progress (recipe module + dashboard editor present; protection rules + e2e verification remaining).
+- **2026-07-29 (gece):** Frontend UI revizyonu (Faz 7'den erken) — amber design language, glass, motion, Toast/ConfirmDialog, mobil drawer, React Portal modal deseni, Alert/Checkbox/btn-sm.
+- **2026-07-30:** **Faz 3 tamamlandı** (recipe protection rules confirmed + dashboard save verified), **Faz 4 tamamlandı** (work-order module + DataCollector + frontend list/form), **Faz 5 tamamlandı** (5 widget render components + useLiveValues + DashboardSelector/View), **Faz 6 tamamlandı** (user-management + system-settings modules: users/permissions/settings/modules/archive/audit). End-to-end verified in browser + API (WO activate → data_log rows; dashboard live widgets; permission matrix; archive interlock; audit entries). Backend+frontend typecheck & production build clean (PWA 35 precache entries).
 
 ## Verification Commands
 ```bash
@@ -89,6 +112,3 @@ node scripts/opcua-sim.mjs [--secure|--auth u:p]
 node scripts/modbus-sim.mjs
 node scripts/recipe-api-test.mjs
 ```
-
-## Evolution Log
-- **2026-07-29:** Memory Bank initialized. Assessed: Faz 1–2 done, Faz 3 in progress (recipe module + dashboard editor present; protection rules + e2e verification remaining).

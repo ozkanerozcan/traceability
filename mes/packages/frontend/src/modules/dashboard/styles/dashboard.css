@@ -1,0 +1,252 @@
+/* ─── Dashboard (Faz 5) Stilleri ─────────────────────────────────────────── */
+
+/* ─── Seçici kartları (ana sayfa) ─── */
+.dashboard-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.dashboard-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.dashboard-card-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: linear-gradient(145deg, rgba(253, 201, 84, 0.18), rgba(253, 201, 84, 0.05));
+  border: 1px solid rgba(253, 201, 84, 0.28);
+  color: var(--accent);
+}
+
+.dashboard-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-card-title {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Görüntüleme grid'i (view-only) ─── */
+.dashboard-view {
+  position: relative;
+  width: 100%;
+  min-height: 480px;
+}
+
+.dashboard-view-widget {
+  position: absolute;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dashboard-view-widget-title {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-view-widget-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Widget içerikleri (wv-*) ─── */
+.wv-numeric {
+  text-align: center;
+}
+
+.wv-numeric-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  letter-spacing: -0.02em;
+}
+
+.wv-numeric-unit {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: var(--space-2);
+}
+
+.wv-bad {
+  color: var(--color-danger);
+}
+
+.wv-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.wv-gauge-svg {
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+}
+
+.wv-gauge-track {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.wv-gauge-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.wv-gauge-fill.over {
+  stroke: var(--color-danger);
+}
+
+.wv-gauge-needle {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.wv-gauge-hub {
+  fill: var(--text-primary);
+}
+
+.wv-gauge-tick {
+  fill: var(--text-muted);
+  font-size: 8px;
+}
+
+.wv-gauge-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--font-size-xl);
+}
+
+.wv-gauge-value.over {
+  color: var(--color-danger);
+}
+
+.wv-trend {
+  width: 100%;
+  height: 100%;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wv-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.wv-status-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.wv-status-dot.on {
+  background: var(--color-success);
+  color: var(--color-success);
+}
+
+.wv-status-dot.off {
+  background: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.wv-status-dot.unknown {
+  background: var(--bg-tertiary);
+  color: transparent;
+  box-shadow: none;
+  border: 1px solid var(--border-strong);
+}
+
+.wv-status-label {
+  font-weight: 700;
+  font-size: var(--font-size-xl);
+  letter-spacing: 0.02em;
+}
+
+.wv-table-wrap {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.wv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.wv-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wv-table tr:last-child td {
+  border-bottom: none;
+}
+
+.wv-table-name {
+  color: var(--text-secondary);
+}
+
+.wv-table-value {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  white-space: nowrap;
+}

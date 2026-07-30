@@ -16,6 +16,10 @@ const LiveMonitorPage = lazy(() => import('./modules/plc-gateway/components/Live
 const ReadWritePage = lazy(() => import('./modules/plc-gateway/components/ReadWritePanel'));
 const RecipeListPage = lazy(() => import('./modules/recipe/components/RecipeList'));
 const DashboardEditorPage = lazy(() => import('./modules/recipe/components/DashboardEditor'));
+const WorkOrderListPage = lazy(() => import('./modules/work-order/components/WorkOrderList'));
+const UserListPage = lazy(() => import('./modules/user-management/components/UserList'));
+const SettingsPage = lazy(() => import('./modules/system-settings/components/SettingsPage'));
+const AuditLogPage = lazy(() => import('./modules/system-settings/components/AuditLogViewer'));
 
 function PageLoader() {
   return (
@@ -50,7 +54,10 @@ export default function App() {
                     <Route path="plc/read-write" element={<ReadWritePage />} />
                     <Route path="recipes" element={<RecipeListPage />} />
                     <Route path="recipes/:id/dashboard" element={<DashboardEditorPage />} />
-                    {/* Faz 4-6: work-orders, users, settings, audit route'ları */}
+                    <Route path="work-orders" element={<WorkOrderListPage />} />
+                    <Route path="users" element={<UserListPage />} />
+                    <Route path="settings" element={<SettingsPage />} />
+                    <Route path="audit" element={<AuditLogPage />} />
                   </Route>
                 </Route>
 

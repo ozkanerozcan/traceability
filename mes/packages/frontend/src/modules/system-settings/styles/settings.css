@@ -1,0 +1,51 @@
+/* ─── Sistem Yönetimi (Faz 6) Stilleri ───────────────────────────────────── */
+
+/* ─── Yetki matrisi ─── */
+.perm-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) repeat(5, minmax(64px, auto));
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+
+.perm-grid-head {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.perm-grid-row {
+  display: contents;
+}
+
+.perm-grid-module {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.perm-grid-col {
+  display: flex;
+  justify-content: center;
+}
+
+.perm-grid-col .checkbox {
+  margin-bottom: 0;
+  min-height: 0;
+}
+
+/* ─── Ayar grupları ─── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* ─── Arşiv kartı ─── */
+.archive-size {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--font-size-3xl);
+}
