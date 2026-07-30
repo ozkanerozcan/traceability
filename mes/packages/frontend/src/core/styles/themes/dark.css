@@ -1,0 +1,34 @@
+/* ─── Dark Tema (varsayılan) ───────────────────────────────────────────────
+   Endüstriyel kontrol odası hissi: derin gece tonları, amber vurgu.      */
+
+[data-theme='dark'] {
+  --bg-primary: #12100c;
+  --bg-secondary: #1a1712;
+  --bg-tertiary: #2a251c;
+  --bg-hover: rgba(200, 178, 130, 0.08);
+  --bg-active: rgba(253, 201, 84, 0.13);
+  --bg-input: #14110d;
+
+  --text-primary: #f4efe6;
+  --text-secondary: #b3a996;
+  --text-muted: #7d7466;
+  --text-inverse: #12100c;
+
+  --border-color: rgba(179, 169, 150, 0.13);
+  --border-strong: rgba(179, 169, 150, 0.26);
+
+  --accent: #fdc954;
+  --accent-hover: #fdd97e;
+  --accent-text: #231a05;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+
+  --sidebar-bg: rgba(18, 16, 12, 0.9);
+  --header-bg: rgba(18, 16, 12, 0.75);
+  --glass: rgba(26, 23, 18, 0.72);
+  --glass-strong: rgba(26, 23, 18, 0.92);
+
+  color-scheme: dark;
+}

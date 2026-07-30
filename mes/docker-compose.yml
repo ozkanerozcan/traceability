@@ -1,0 +1,23 @@
+services:
+  mes-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"       # HTTP + WebSocket (tek port)
+    volumes:
+      - mes-data:/app/data        # SQLite DB dosyaları
+      - mes-uploads:/app/uploads  # Logo vb.
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/app/data/mes.db
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET .env dosyasında tanımlı olmalı}
+      - PORT=3000
+    restart: unless-stopped
+    # Modbus RTU için gerekirse seri port paylaşımı:
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+
+volumes:
+  mes-data:
+  mes-uploads:

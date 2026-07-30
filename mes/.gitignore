@@ -1,0 +1,28 @@
+# Bağımlılıklar
+node_modules/
+
+# Build çıktıları
+dist/
+**/dist/
+
+# Veritabanı ve veri dosyaları
+data/
+uploads/
+*.db
+*.db-wal
+*.db-shm
+
+# Ortam değişkenleri
+.env
+.env.local
+
+# Log dosyaları
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

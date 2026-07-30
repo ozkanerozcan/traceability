@@ -1,0 +1,33 @@
+/* ─── Light Tema ─────────────────────────────────────────────────────────── */
+
+[data-theme='light'] {
+  --bg-primary: #faf7f1;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f0e9db;
+  --bg-hover: rgba(150, 110, 20, 0.06);
+  --bg-active: rgba(253, 201, 84, 0.18);
+  --bg-input: #ffffff;
+
+  --text-primary: #211c13;
+  --text-secondary: #5d5544;
+  --text-muted: #a39680;
+  --text-inverse: #faf7f1;
+
+  --border-color: rgba(33, 28, 19, 0.09);
+  --border-strong: rgba(33, 28, 19, 0.18);
+
+  --accent: #d99e1a;
+  --accent-hover: #b9860f;
+  --accent-text: #231a05;
+
+  --shadow-sm: 0 1px 3px rgba(33, 28, 19, 0.07);
+  --shadow-md: 0 8px 24px rgba(33, 28, 19, 0.09);
+  --shadow-lg: 0 18px 48px rgba(33, 28, 19, 0.14);
+
+  --sidebar-bg: rgba(255, 255, 255, 0.85);
+  --header-bg: rgba(250, 247, 241, 0.8);
+  --glass: rgba(255, 255, 255, 0.75);
+  --glass-strong: rgba(255, 255, 255, 0.94);
+
+  color-scheme: light;
+}

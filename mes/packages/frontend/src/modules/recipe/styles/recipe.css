@@ -1,0 +1,302 @@
+/* ─── Reçete Modülü Stilleri ───────────────────────────────────────────────
+   Not: .alert kuralları artık core/styles/index.css'te (ortak bileşen).  */
+
+/* ─── Dashboard Editörü ─── */
+.dashboard-editor {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.widget-palette {
+  width: 208px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  position: sticky;
+  top: 0;
+}
+
+.widget-palette-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-1);
+}
+
+.widget-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: grab;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    transform var(--transition-fast);
+  user-select: none;
+}
+
+.widget-palette-item:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-active);
+  transform: translateY(-1px);
+}
+
+.widget-palette-item:active {
+  cursor: grabbing;
+}
+
+.dashboard-canvas {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  min-height: 480px;
+  position: relative;
+  padding: var(--space-2);
+}
+
+.dashboard-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Widget kartları (editör görünümü) ─── */
+.dashboard-widget {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.dashboard-widget:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.dashboard-widget-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  cursor: move;
+}
+
+.dashboard-widget-icon {
+  color: var(--accent);
+  display: inline-flex;
+}
+
+.dashboard-widget-title {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-widget-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+/* react-grid-layout placeholder rengi (tema uyumlu) */
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent) !important;
+  opacity: 0.2;
+  border-radius: var(--radius-md);
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-color: var(--text-muted) !important;
+}
+
+/* ─── Widget konfigürasyon paneli ─── */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0 var(--space-3);
+}
+
+.tag-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--bg-input);
+}
+
+.tag-check-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  /* Liste içinde kompakt — checkbox'ın mobil min-height'ını sıfırla */
+  min-height: 0;
+  margin-bottom: 0;
+  padding: var(--space-1) 0;
+}
+
+/* ─── TagSelect (seçim diyaloğu açan trigger) ─── */
+.tag-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.tag-select-trigger:hover {
+  border-color: var(--accent);
+}
+
+.tag-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Tag seçim diyaloğu (ana pop-up üzerinde açılır) ─── */
+.tag-picker-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.tag-picker-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.tag-picker-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.tag-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+
+
+.tag-select-group-label {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tag-select-item {
+  padding: var(--space-2) var(--space-3);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.tag-select-item:hover {
+  background: var(--bg-hover);
+}
+
+.tag-select-item.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tag-select-empty {
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+/* ─── Responsive: editör mobilde alt alta ─── */
+@media (max-width: 860px) {
+  .dashboard-editor {
+    flex-direction: column;
+  }
+
+  .widget-palette {
+    width: 100%;
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .widget-palette-title,
+  .widget-palette > p {
+    grid-column: 1 / -1;
+  }
+
+  .widget-palette-item {
+    margin-bottom: 0;
+  }
+}

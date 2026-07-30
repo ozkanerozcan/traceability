@@ -1,0 +1,19 @@
+{
+  "name": "oe-mes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OE MES - Manufacturing Execution System Web Application",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=packages/backend",
+    "dev:frontend": "npm run dev --workspace=packages/frontend",
+    "build": "npm run build --workspace=packages/frontend && npm run build --workspace=packages/backend && node scripts/copy-frontend.mjs",
+    "start": "npm run start --workspace=packages/backend",
+    "typecheck": "npm run typecheck --workspace=packages/backend && npm run typecheck --workspace=packages/frontend"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
