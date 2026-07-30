@@ -1,7 +1,7 @@
 # Active Context — OE MES
 
 ## Current Focus
-**Faz 3 (Reçete Yönetimi / Recipe Management)** is the active development area. Backend recipe module exists and is registered; frontend recipe components exist. Recently-touched files (from editor state) center on the recipe feature and its integration with PLC tags and the dashboard editor.
+**Faz 1–6 TAMAMLANDI** (2026-07-30). Aktif geliştirme alanı artık **Faz 7 (PWA & Polish)**. Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel).
 
 ## What Exists Right Now
 
@@ -59,7 +59,13 @@
   - **Inline-style temizliği:** modal footer `<div style={{flex:1}}/>` → `.spacer` sınıfı (PlcForm, CertificatesPanel); `alert alert-*` kalıpları → `<Alert>` (LoginPage, PlcForm, TagForm, RecipeForm, RecipeList, DashboardEditor, LiveMonitor, CertificatesPanel); recipe.css'teki eski `.alert` kuralları kaldırıldı (artık index.css'te ortak).
   - **Modal → React Portal (kullanıcı geri bildirimi):** ikincil diyaloglar (TagSelect gibi) üst modalın `backdrop-filter` containing block'una hapsolup "pop-up içinde pop-up" görünüyordu. `Modal` artık `createPortal(..., document.body)` ile render ediliyor — ikincil diyalog TAM SAYFA overlay + blur ile önceki modalın üzerinde açılıyor, önceki modal arka planda açık kalıyor (TagForm → NodeBrowserDialog deseniyle birebir aynı). `modalStack` z-index basamağı korunuyor.
   - **Escape yığını:** global `modalCloseStack` — Escape yalnızca EN ÜSTTEKİ modalı kapatır; alttaki diyalog açık kalır. Scroll-lock iç içe güvenli (önceki overflow geri yüklenir).
-  - Tarayıcıda doğrulandı: DashboardEditor → widget config → Data Source (TagSelect) tam sayfa blur overlay ile açılıyor; kapatınca widget config açık kalıyor. Typecheck + üretim build temiz (PWA precache 22 girdi).
+- Tarayıcıda doğrulandı: DashboardEditor → widget config → Data Source (TagSelect) tam sayfa blur overlay ile açılıyor; kapatınca widget config açık kalıyor. Typecheck + üretim build temiz (PWA precache 22 girdi).
+- **2026-07-30 (Faz 4+5+6):** İş Emri, Dashboard ve Sistem Yönetimi tamamlandı ve uçtan uca doğrulandı.
+  - **Faz 4:** Backend `work-order` modülü (CRUD + `WO-YYYYMMDD-NNN` + `TRANSITIONS` durum makinesi + `canTransition`), `data-collector.service` (worker→`data_log`, 1sn transaction batching, quality/value_text, recipe_tags ∪ dashboard widget tagId/tagIds, boot resume). Frontend `WorkOrderList` (durum filtresi + durum bazlı aksiyonlar) + `WorkOrderForm`. Route `/work-orders`.
+  - **Faz 5:** 5 widget render bileşeni (Numeric, Gauge custom-SVG, Trend Recharts, Status LED, Table), `useLiveValues(plcIds[])` hook, `DashboardSelector` (aktif WO kartları, WS canlı), `DashboardView` (view-only 12-col absolute grid, canlı veri). `/` ve `/dashboard/:workOrderId`.
+  - **Faz 6:** Backend `user-management` (user CRUD bcrypt + last-admin guard + `/api/permissions` module×permission) + `system-settings` (settings, modules enable/disable→restartRequired, archive interlock+full-copy+yalnız data_log, audit paged). Frontend: UserList+UserForm+PermissionEditor (checkbox matrisi), SettingsPage (Branding+ModuleManager)+ArchivePanel, AuditLogViewer. Rotalar `/users`, `/settings`, `/audit`.
+  - **Doğrulama (tarayıcı + API):** WO-20260730-001 oluşturuldu → activate (started_at) → `data_log`'a widget-bound tag kayıtları (tag 4,5,6, quality 'good') düştü; canlı dashboard Counter numeric + gauge render oldu; yetki matrisi ızgara doğru; arşivleme 1 aktif WO varken engellendi (interlock); audit login/create/start/stop/delete gösterdi. Typecheck + backend/frontend build temiz (PWA 35 precache).
+  - Commit `d22a52f` (+`934b7d3` chore) → origin/main push edildi.
 
 
 
