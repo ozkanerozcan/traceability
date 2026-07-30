@@ -1,7 +1,7 @@
 # Active Context — OE MES
 
 ## Current Focus
-**Faz 1–6 TAMAMLANDI** (2026-07-30). Aktif geliştirme alanı artık **Faz 7 (PWA & Polish)**. Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel).
+**Faz 1–6 + Ürün İzlenebilirliği TAMAMLANDI** (2026-07-30). Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings, **traceability**) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel). Son büyük özellik: **Product Traceability** (QR üretimi + capability bazlı istasyon/rota motoru). Kalan: Faz 7 (PWA & Polish).
 
 ## What Exists Right Now
 
@@ -66,6 +66,13 @@
   - **Faz 6:** Backend `user-management` (user CRUD bcrypt + last-admin guard + `/api/permissions` module×permission) + `system-settings` (settings, modules enable/disable→restartRequired, archive interlock+full-copy+yalnız data_log, audit paged). Frontend: UserList+UserForm+PermissionEditor (checkbox matrisi), SettingsPage (Branding+ModuleManager)+ArchivePanel, AuditLogViewer. Rotalar `/users`, `/settings`, `/audit`.
   - **Doğrulama (tarayıcı + API):** WO-20260730-001 oluşturuldu → activate (started_at) → `data_log`'a widget-bound tag kayıtları (tag 4,5,6, quality 'good') düştü; canlı dashboard Counter numeric + gauge render oldu; yetki matrisi ızgara doğru; arşivleme 1 aktif WO varken engellendi (interlock); audit login/create/start/stop/delete gösterdi. Typecheck + backend/frontend build temiz (PWA 35 precache).
   - Commit `d22a52f` (+`934b7d3` chore) → origin/main push edildi.
+- **2026-07-30 (Ürün İzlenebilirliği):** `product_traceability.md` gereksinimleri uygulandı.
+  - **Migration 3 (`traceability_schema`):** 11 tablo + 9 ön-tanımlı istasyon (QR Generator, Trolley Assignment, Filling, Probing, Conditioning, Drilling, X-Ray, Painting, Manual Workstation) + varsayılan rota + `modules` kaydı.
+  - **Bağımlılıksız QR encoder** (`traceability/qr/qrcode.ts`): ISO/IEC 18004, byte mode, ECC M, sürüm 1–10, Reed-Solomon (GF256) → SVG path. Native bağımlılık yok. `QrCode.tsx` render bileşeni.
+  - **Backend `traceability` modülü:** `trace.service` (CRUD + `SH-YYYYMMDD-NNNN`), `station.engine` (capability motoru + task management — zorunlu görevler tamamlanmadan ilerleme yok), `trace.routes` (`/api/trace/*`), PLC bridge (`workerManager.readTag`/`writeTag`).
+  - **Rota/task:** ürün bazlı istasyonlarda rota dışı → 409 `ROUTE_VIOLATION`; NOK → `rejected` + alarm; conditioning erken çıkış → alarm + PLC'ye alarm yaz + reddet. Filling=groupSize'lı grup, Probing=tüm arabaya yay.
+  - **Frontend:** StationsPage (CRUD + capability toggle + PLC config), StationWorkPage (capability'e göre dinamik UI — tarama odaklı), ProductsPage (detay + QR etiket/yazdır), TrolleysPage (20 slot), RoutesPage (adım siralama), AlarmsPanel (ack). Rotalar `/trace/*`, sidebar nav.
+  - **Doğrulama:** QR üretimi (SH-20260730-0001 + taranabilir SVG), trolley atama (advanced:true), rota ihlali 409 (fresh product→drilling reddedildi), typecheck + backend/frontend build temiz (PWA 43 precache). Commit `6fdb751` (+`488c66c` chore) → origin/main push edildi.
 
 
 
