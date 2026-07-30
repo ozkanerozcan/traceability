@@ -13,6 +13,7 @@
 | Faz 5 | Dashboard (widgets) | ✅ Complete |
 | Faz 6 | Sistem Yönetimi (users/settings/archive/audit) | ✅ Complete |
 | Faz 7 | PWA & Polish | 🔶 In progress |
+| **Ürün İzlenebilirliği** | Product Traceability (QR + istasyon/rota) | ✅ Complete |
 
 ## What Works (Faz 1)
 - [x] Monorepo structure (npm workspaces), backend Fastify+TS, frontend Vite+React+TS
@@ -66,6 +67,15 @@
 - [x] Backend `system-settings`: `settings.service` (key-value get/set), `module.service` (enable/disable), `archive.service` (interlock on active WOs → `WORK_ORDER_ACTIVE`; full DB copy `mes_data_<ts>.db`; clears only `data_log`), `settings.routes` (`/api/settings`, `/api/modules`, `/api/archive` GET status + POST run, `/api/audit` paged query).
 - [x] Frontend `admin.service` (users/permissions/settings/modules/archive/audit). Pages: `UserList` + `UserForm` + `PermissionEditor` (operator role module×permission checkbox matrix), `SettingsPage` (Branding + ModuleManager) + `ArchivePanel` (size + warn + interlock + confirm), `AuditLogViewer` (paged table, action badge variants). Routes `/users`, `/settings`, `/audit`.
 - [x] Verified: permission matrix grid renders; archive blocked while 1 active WO (interlock); audit shows login/create/start/stop/delete entries.
+
+## What Works (Ürün İzlenebilirliği — 2026-07-30)
+- [x] **Migration 3 (`traceability_schema`):** 11 tablo (trace_stations, trace_routes, trace_route_steps, trace_trolleys, trace_products, trace_trolley_slots, trace_station_records, trace_batches, trace_alarms, trace_qr_logs + indeksler) + `modules` kaydı + 9 ön-tanımlı istasyon (QR Generator, Trolley Assignment, Filling, Probing, Conditioning, Drilling, X-Ray, Painting, Manual Workstation) + varsayılan rota.
+- [x] **Bağımlılıksız QR encoder** (`traceability/qr/qrcode.ts`): ISO/IEC 18004, byte mode, ECC M, sürüm 1–10, Reed-Solomon (GF256). SVG path üretir — native bağımlılık YOK, air-gapped uyumlu. `QrCode.tsx` frontend render bileşeni.
+- [x] **Backend `traceability` modülü:** `trace.service` (CRUD + `SH-YYYYMMDD-NNNN` product id + slot/record/batch/alarm), `station.engine` (capability motoru: qr_generate / trolley_assign / plc_acquire / ok_nok / batch_assign / wait_control / route_validate + **task management** — zorunlu görevler tamamlanmadan ilerleme yok), `trace.routes` (`/api/trace/*`), PLC bridge (`workerManager.readTag`/`writeTag`).
+- [x] **Rota doğrulama:** ürün bazlı istasyonlarda rota dışı deneme → 409 `ROUTE_VIOLATION` (doğrulandı: fresh product → drilling reddedildi). NOK → ürün `rejected` + alarm. Bekleme (conditioning) erken çıkışta alarm + PLC'ye alarm yaz + reddet.
+- [x] **Frontend `traceability` modülü:** StationsPage (CRUD + capability toggle + PLC/tag config), StationWorkPage (capability'e göre dinamik UI — tarama odaklı), ProductsPage (durum filtresi + detay + QR etiket/yazdır), TrolleysPage (20 slot görünümü), RoutesPage (adım sıralama + istasyon seçimi), AlarmsPanel (aktif alarmlar + ack). Rotalar `/trace/*`, sidebar nav linkleri.
+- [x] **Doğrulama (API + tarayıcı):** 9 istasyon seed; QR üretimi (SH-20260730-0001 + taranabilir SVG); trolley atama (advanced:true, step ilerledi); rota ihlali 409; typecheck + backend/frontend build temiz (PWA 43 precache).
+- [x] i18n `trace.*` + `nav.trace*` (tr/en); audit `trace_*` entity tipleri; WS `system:notification` (trace).
 
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.

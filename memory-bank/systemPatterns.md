@@ -9,7 +9,7 @@ Monorepo (npm workspaces): `packages/backend` (Fastify + SQLite + Worker Threads
 - `IModule` interface: `{ id, name, version, dependencies?, register(app, options), onEnable?, onDisable?, onShutdown? }`.
 - `module.registry.ts` holds all modules; `module.loader.ts` reads enabled state from `modules` DB table and calls `register()` for enabled ones.
 - All modules registered in `modules/index.ts` → `registerAllModules()` (called in `app.ts` **before** `moduleLoader.loadAll(app)`).
-- Currently registered: `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`.
+- Currently registered: `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`, `traceability`.
 
 ### App Bootstrap (`app.ts` → `server.ts`)
 Order: `getDb()` → `runMigrations(db)` → `initializeDatabase(db)` (seed) → cors → websocket → authPlugin → `/api/health` (public) → authRoutes (`/api/auth`) → `wsManager.register(app)` → `registerAllModules()` → `moduleLoader.loadAll(app)` → static frontend + SPA fallback (non-`/api`, non-`/ws` GET → `index.html`).
@@ -61,6 +61,12 @@ PLC/OPC UA → Worker Thread → MessagePort → WorkerManager →
 ### System Settings (`modules/system-settings/`)
 - `settings.service.ts` (key-value get/set), `archive.service.ts` (`archiveDatabase`: interlock — active/paused WO varsa `WORK_ORDER_ACTIVE` 409; WAL checkpoint + full copy `mes_data_<ts>.db`; yalnız `data_log` silinir), `settings.routes.ts` — `/api/settings` (GET/PUT), `/api/modules` (GET + PUT enable/disable → `restartRequired: true`), `/api/archive` (GET status: sizeMb/warnExceeded/activeWorkOrders/canArchive + POST run), `/api/audit` (paged query).
 
+### Traceability (`modules/traceability/`)
+- **QR encoder** (`qr/qrcode.ts`): bağımlılıksız ISO/IEC 18004 (byte mode, ECC M, sürüm 1–10, Reed-Solomon GF256) → SVG path. Native bağımlılık YOK.
+- `trace.service.ts`: CRUD + `generateProductId()` (`SH-YYYYMMDD-NNNN`) + slot/record/batch/alarm. `parseCapabilities`/`parseConfig` (JSON kolonlar).
+- `station.engine.ts`: **capability motoru** — her istasyon `capabilities` JSON'una göre davranır: `qr_generate` (Product ID + QR + etiket), `trolley_assign` (trolley+product QR → slot + tork), `plc_acquire` (`workerManager.readTag`; filling=groupSize'lı grup, probing=tüm arabaya yay), `ok_nok` (NOK→`rejected`+alarm), `batch_assign` (malzeme/bileşen parti), `wait_control` (giriş/çıkış taraması + `waitHours`; erken çıkışta alarm + `workerManager.writeTag` alarm + reddet), `route_validate` (rota dışı → 409 `ROUTE_VIOLATION`). **Task management:** zorunlu görevler (PLC verisi/OK-NOK/batch/bekleme) tamamlanmadan `current_step_index` ilerlemez; rota sonunda `completed`.
+- `trace.routes.ts`: `/api/trace/*` — stations, routes (+steps), trolleys, products (+records), `POST /scan` (ana işlem noktası), `GET /qr/:productId` (etiket), batches, alarms (+ack). `StationError` → 400/404/409/502 zarfı.
+
 ### API Conventions
 - Standard error envelope: `{ error: { code, message, details } }`. Codes: 400 VALIDATION_ERROR, 401 UNAUTHORIZED/TOKEN_EXPIRED, 403 FORBIDDEN, 404 NOT_FOUND, 409 DUPLICATE_NAME/WORK_ORDER_ACTIVE/INVALID_TRANSITION/RECIPE_IN_USE, 502 PLC_CONNECTION_FAILED/OPCUA_SESSION_FAILED/OPCUA_CERT_UNTRUSTED, 500 INTERNAL_ERROR.
 - Route files per module (`*.routes.ts`) + service files (`*.service.ts`); routes registered under `/api/...` prefixes inside each module's `register()`.
@@ -69,11 +75,14 @@ PLC/OPC UA → Worker Thread → MessagePort → WorkerManager →
 
 ### Structure
 - `core/`: Layout (Sidebar+Header+Content), ThemeProvider (dark/light), LanguageProvider (TR/EN), ProtectedRoute, ErrorBoundary, common components; hooks (`useAuth`, `useWebSocket`, `useTheme`, `useLanguage`); services (`api.ts` fetch wrapper w/ error-envelope handling, `ws.ts` WS client w/ exponential-backoff reconnect 1s→30s + token refresh); Zustand stores (`authStore`, `appStore`); i18n (`locales/tr.json`, `en.json`); styles (`index.css`, `variables.css` CSS custom properties, `themes/dark.css`, `light.css`).
-- `modules/`: feature folders per domain (`auth`, `dashboard`, `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`) with `components/`, `hooks/`, `services/` subfolders.
+- `modules/`: feature folders per domain (`auth`, `dashboard`, `plc-gateway`, `recipe`, `work-order`, `user-management`, `system-settings`, `traceability`) with `components/`, `hooks/`, `services/` subfolders.
 
 ### Routing (`App.tsx`)
-- Lazy-loaded pages via `React.lazy` + `Suspense`. Public: `/login`. Protected (ProtectedRoute → Layout): `/` DashboardPage (DashboardSelector), `/dashboard/:workOrderId` (DashboardView), `/plc`, `/plc/:id/tags`, `/plc/:id/monitor` (LiveMonitor), `/plc/read-write`, `/recipes`, `/recipes/:id/dashboard` (DashboardEditor), `/work-orders` (WorkOrderList), `/users` (UserList), `/settings` (SettingsPage), `/audit` (AuditLogViewer). `*` → Navigate to `/`.
+- Lazy-loaded pages via `React.lazy` + `Suspense`. Public: `/login`. Protected (ProtectedRoute → Layout): `/` DashboardPage (DashboardSelector), `/dashboard/:workOrderId` (DashboardView), `/plc`, `/plc/:id/tags`, `/plc/:id/monitor` (LiveMonitor), `/plc/read-write`, `/recipes`, `/recipes/:id/dashboard` (DashboardEditor), `/work-orders` (WorkOrderList), `/users` (UserList), `/settings` (SettingsPage), `/audit` (AuditLogViewer), `/trace/stations`, `/trace/work/:stationKey` (StationWorkPage), `/trace/products`, `/trace/trolleys`, `/trace/routes`, `/trace/alarms`. `*` → Navigate to `/`.
 - `useAuthRestore()` runs before routes to restore session.
+
+### Traceability (frontend)
+- `trace.service.ts` (API wrapper). `QrCode.tsx` (SVG path render). `StationWorkPage`: **capability'e göre dinamik UI** — trolley/product/batch tarama alanları, OK/NOK butonları, entry/exit, QR etiket + `window.print()` (`@media print` yalnız etiket). `trace/styles/trace.css` (slot grid, route editor, qr-label).
 
 ### Dashboard (Faz 5)
 - `useLiveValues(plcIds[])` hook: multi-PLC `subscribe:plc`, tagId→value map. `DashboardView`: view-only absolute-position grid (12 cols, rowHeight 72), renders recipe `dashboard_layout.widgets` live. `DashboardSelector`: active+paused WO cards, WS `workorder:changed` ile canlı tazelenir.

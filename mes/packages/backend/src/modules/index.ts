@@ -4,6 +4,7 @@ import recipeModule from './recipe/index.js';
 import workOrderModule from './work-order/index.js';
 import userManagementModule from './user-management/index.js';
 import systemSettingsModule from './system-settings/index.js';
+import traceabilityModule from './traceability/index.js';
 
 /**
  * Tüm uygulama modüllerini registry'ye kaydeder.
@@ -15,4 +16,5 @@ export function registerAllModules(): void {
   moduleRegistry.register(workOrderModule);
   moduleRegistry.register(userManagementModule);
   moduleRegistry.register(systemSettingsModule);
+  moduleRegistry.register(traceabilityModule);
 }

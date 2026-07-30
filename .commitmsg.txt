@@ -1,0 +1,19 @@
+Urun Izlenilebilirligi (Product Traceability): QR + istasyon/rota motoru
+
+- Migration 3 (traceability_schema): 11 tablo (stations, routes, route_steps, trolleys,
+  products, trolley_slots, station_records, batches, alarms, qr_logs) + 9 on-tanimli
+  istasyon + varsayilan rota + modul kaydi
+- Bagimliliksiz QR encoder (ISO/IEC 18004, byte mode, ECC M, surum 1-10, Reed-Solomon
+  GF256) -> SVG path; native bagimlilik yok, air-gapped uyumlu
+- Backend traceability modulu: trace.service (CRUD + SH-YYYYMMDD-NNNN product id),
+  station.engine (capability motoru: qr_generate/trolley_assign/plc_acquire/ok_nok/
+  batch_assign/wait_control/route_validate + task management), trace.routes (/api/trace/*),
+  PLC bridge (workerManager.readTag/writeTag)
+- Rota dogrulama: rota disi deneme -> 409 ROUTE_VIOLATION; NOK -> rejected + alarm;
+  bekleme erken cikis -> alarm + PLC'ye alarm yaz + reddet
+- Frontend traceability modulu: StationsPage (CRUD + capability toggle + PLC config),
+  StationWorkPage (capability'e gore dinamik UI, tarama odakli), ProductsPage (detay +
+  QR etiket/yazdir), TrolleysPage (20 slot), RoutesPage (adim siralama), AlarmsPanel (ack)
+- i18n trace.* + nav.trace* (tr/en); audit trace_*; WS system:notification
+- Dogrulandi: 9 istasyon seed, QR uretimi (taranabilir SVG), trolley atama, rota ihlali 409,
+  typecheck + backend/frontend build temiz (PWA 43 precache)

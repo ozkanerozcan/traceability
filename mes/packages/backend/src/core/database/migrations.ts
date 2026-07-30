@@ -305,6 +305,182 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 3,
+    name: 'traceability_schema',
+    up: (db) => {
+      db.exec(`
+        -- ─── İstasyonlar (konfigüre edilebilir) ───
+        CREATE TABLE trace_stations (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            key          TEXT UNIQUE NOT NULL,        -- 'qr_generator', 'filling', ...
+            name         TEXT NOT NULL,
+            type         TEXT NOT NULL DEFAULT 'generic',
+            sort_order   INTEGER DEFAULT 0,
+            is_active    INTEGER DEFAULT 1,
+            capabilities TEXT NOT NULL DEFAULT '[]',  -- JSON: ['qr_generate','plc_acquire',...]
+            config       TEXT NOT NULL DEFAULT '{}',  -- JSON: {plcId, plcTagId, waitHours, positions, ...}
+            created_at   TEXT DEFAULT (datetime('now')),
+            updated_at   TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── Rotalar ───
+        CREATE TABLE trace_routes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT UNIQUE NOT NULL,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE trace_route_steps (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            route_id    INTEGER NOT NULL REFERENCES trace_routes(id) ON DELETE CASCADE,
+            station_id  INTEGER NOT NULL REFERENCES trace_stations(id) ON DELETE CASCADE,
+            sequence    INTEGER NOT NULL,             -- 0'dan başlayan sıra
+            UNIQUE(route_id, sequence)
+        );
+
+        -- ─── Arabalar (Trolley) ───
+        CREATE TABLE trace_trolleys (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code        TEXT UNIQUE NOT NULL,         -- trolley QR içeriği
+            slot_count  INTEGER NOT NULL DEFAULT 20,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── Ürünler (Shell) ───
+        CREATE TABLE trace_products (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id         TEXT UNIQUE NOT NULL,  -- 'SH-YYYYMMDD-NNNN'
+            status             TEXT NOT NULL DEFAULT 'in_progress'
+                               CHECK(status IN ('in_progress','completed','rejected')),
+            route_id           INTEGER REFERENCES trace_routes(id),
+            current_step_index INTEGER NOT NULL DEFAULT 0,
+            qr_content         TEXT,                  -- QR içeriği (= product_id)
+            created_at         TEXT DEFAULT (datetime('now')),
+            updated_at         TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── Trolley slot atamaları ───
+        CREATE TABLE trace_trolley_slots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            trolley_id   INTEGER NOT NULL REFERENCES trace_trolleys(id) ON DELETE CASCADE,
+            slot_number  INTEGER NOT NULL,            -- 1..20
+            product_id   TEXT NOT NULL,               -- trace_products.product_id
+            assigned_at  TEXT DEFAULT (datetime('now')),
+            released_at  TEXT,                        -- boşaldığında
+            UNIQUE(trolley_id, slot_number, released_at)
+        );
+
+        -- ─── İstasyon işlem kayıtları ───
+        CREATE TABLE trace_station_records (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id   TEXT NOT NULL,               -- trace_products.product_id
+            station_id   INTEGER NOT NULL REFERENCES trace_stations(id) ON DELETE CASCADE,
+            trolley_id   INTEGER REFERENCES trace_trolleys(id),
+            status       TEXT,                        -- 'ok' | 'nok' | 'done' | 'rejected' | null
+            data         TEXT NOT NULL DEFAULT '{}',  -- JSON: PLC değerleri, tork, sıcaklık, süre, ...
+            batch_no     TEXT,
+            operator_id  INTEGER REFERENCES users(id),
+            created_at   TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── Parti numaraları (malzeme + bileşen, rotadan bağımsız) ───
+        CREATE TABLE trace_batches (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_no    TEXT UNIQUE NOT NULL,
+            kind        TEXT NOT NULL DEFAULT 'material'
+                        CHECK(kind IN ('material','component')),
+            description TEXT,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── Alarmlar ───
+        CREATE TABLE trace_alarms (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id     TEXT,
+            trolley_id     INTEGER,
+            station_id     INTEGER REFERENCES trace_stations(id),
+            severity       TEXT NOT NULL DEFAULT 'warning'
+                           CHECK(severity IN ('info','warning','critical')),
+            message        TEXT NOT NULL,
+            acknowledged   INTEGER DEFAULT 0,
+            acknowledged_by INTEGER REFERENCES users(id),
+            acknowledged_at TEXT,
+            created_at     TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ─── QR üretim günlüğü (yeniden yazdırma) ───
+        CREATE TABLE trace_qr_logs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id   TEXT NOT NULL,
+            qr_content   TEXT NOT NULL,
+            printed_at   TEXT DEFAULT (datetime('now')),
+            printed_by   INTEGER REFERENCES users(id)
+        );
+
+        -- ─── İndeksler ───
+        CREATE INDEX idx_trace_products_status ON trace_products(status);
+        CREATE INDEX idx_trace_records_product ON trace_station_records(product_id);
+        CREATE INDEX idx_trace_records_station ON trace_station_records(station_id);
+        CREATE INDEX idx_trace_slots_trolley ON trace_trolley_slots(trolley_id);
+        CREATE INDEX idx_trace_alarms_ack ON trace_alarms(acknowledged);
+      `);
+
+      // Modül kaydı (mevcut DB'lerde migration 1 çalışmadığı için burada eklenir)
+      db.prepare(
+        'INSERT OR IGNORE INTO modules (id, name, enabled) VALUES (?, ?, 1)'
+      ).run('traceability', 'Product Traceability');
+
+      // ─── Ön-tanımlı istasyonlar (capability + örnek config ile) ───
+      const insertStation = db.prepare(
+        `INSERT OR IGNORE INTO trace_stations (key, name, type, sort_order, capabilities, config)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      const stations: [string, string, string, number, string, string][] = [
+        ['qr_generator', 'QR Kod Üretim', 'qr', 0,
+          JSON.stringify(['qr_generate', 'printing']),
+          JSON.stringify({})],
+        ['trolley_assign', 'Araba Atama', 'trolley', 1,
+          JSON.stringify(['trolley_assign', 'plc_acquire']),
+          JSON.stringify({ torqueTagKey: 'torque' })],
+        ['filling', 'Dolum', 'plc', 2,
+          JSON.stringify(['plc_acquire', 'batch_assign']),
+          JSON.stringify({ positions: 20, groupSize: 4, positionTagKey: 'trolley_position' })],
+        ['probing', 'Problama', 'plc', 3,
+          JSON.stringify(['plc_acquire']),
+          JSON.stringify({ positions: 20 })],
+        ['conditioning', 'Kondisyonlama', 'wait', 4,
+          JSON.stringify(['wait_control', 'ok_nok']),
+          JSON.stringify({ waitHours: 24 })],
+        ['drilling', 'Delme', 'check', 5,
+          JSON.stringify(['ok_nok']),
+          JSON.stringify({})],
+        ['xray', 'X-Ray', 'check', 6,
+          JSON.stringify(['ok_nok']),
+          JSON.stringify({})],
+        ['painting', 'Boya', 'check', 7,
+          JSON.stringify(['ok_nok']),
+          JSON.stringify({})],
+        ['manual_workstation', 'Manuel Montaj', 'assembly', 8,
+          JSON.stringify(['batch_assign', 'ok_nok', 'operator_confirm']),
+          JSON.stringify({ componentKind: 'component' })],
+      ];
+      for (const s of stations) insertStation.run(...s);
+
+      // ─── Varsayılan rota: tüm istasyonlar sırayla ───
+      db.prepare('INSERT OR IGNORE INTO trace_routes (id, name, is_active) VALUES (1, ?, 1)')
+        .run('Varsayılan Rota');
+      const stationIds = db
+        .prepare('SELECT id FROM trace_stations ORDER BY sort_order')
+        .all() as { id: number }[];
+      const insertStep = db.prepare(
+        'INSERT OR IGNORE INTO trace_route_steps (route_id, station_id, sequence) VALUES (1, ?, ?)'
+      );
+      stationIds.forEach((st, i) => insertStep.run(st.id, i));
+    },
+  },
 ];
 
 /**

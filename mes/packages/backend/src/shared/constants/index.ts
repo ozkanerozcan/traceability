@@ -19,6 +19,7 @@ export const CORE_MODULE_IDS = [
   'dashboard',
   'user-management',
   'system-settings',
+  'traceability',
 ] as const;
 
 export type CoreModuleId = (typeof CORE_MODULE_IDS)[number];
@@ -30,6 +31,7 @@ export const MODULE_DISPLAY_NAMES: Record<CoreModuleId, string> = {
   dashboard: 'Dashboard',
   'user-management': 'User Management',
   'system-settings': 'System Settings',
+  traceability: 'Product Traceability',
 };
 
 /** DB boyutu bu eşiği aşarsa arşivleme uyarısı üretilir (2 GB) */

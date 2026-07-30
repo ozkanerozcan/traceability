@@ -20,6 +20,12 @@ const WorkOrderListPage = lazy(() => import('./modules/work-order/components/Wor
 const UserListPage = lazy(() => import('./modules/user-management/components/UserList'));
 const SettingsPage = lazy(() => import('./modules/system-settings/components/SettingsPage'));
 const AuditLogPage = lazy(() => import('./modules/system-settings/components/AuditLogViewer'));
+const TraceStationsPage = lazy(() => import('./modules/traceability/components/StationsPage'));
+const TraceStationWorkPage = lazy(() => import('./modules/traceability/components/StationWorkPage'));
+const TraceProductsPage = lazy(() => import('./modules/traceability/components/ProductsPage'));
+const TraceTrolleysPage = lazy(() => import('./modules/traceability/components/TrolleysPage'));
+const TraceRoutesPage = lazy(() => import('./modules/traceability/components/RoutesPage'));
+const TraceAlarmsPage = lazy(() => import('./modules/traceability/components/AlarmsPanel'));
 
 function PageLoader() {
   return (
@@ -58,6 +64,12 @@ export default function App() {
                     <Route path="users" element={<UserListPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="audit" element={<AuditLogPage />} />
+                    <Route path="trace/stations" element={<TraceStationsPage />} />
+                    <Route path="trace/work/:stationKey" element={<TraceStationWorkPage />} />
+                    <Route path="trace/products" element={<TraceProductsPage />} />
+                    <Route path="trace/trolleys" element={<TraceTrolleysPage />} />
+                    <Route path="trace/routes" element={<TraceRoutesPage />} />
+                    <Route path="trace/alarms" element={<TraceAlarmsPage />} />
                   </Route>
                 </Route>
 

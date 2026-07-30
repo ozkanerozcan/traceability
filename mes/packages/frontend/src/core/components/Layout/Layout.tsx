@@ -19,6 +19,11 @@ import {
   Menu,
   X,
   ChevronDown,
+  Package,
+  ShoppingCart,
+  Route as RouteIcon,
+  BellRing,
+  Wrench,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -38,6 +43,11 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/work-orders', icon: <ClipboardList size={18} />, labelKey: 'nav.workOrders' },
   { to: '/recipes', icon: <BookOpen size={18} />, labelKey: 'nav.recipes' },
   { to: '/plc', icon: <Cpu size={18} />, labelKey: 'nav.plc' },
+  { to: '/trace/stations', icon: <Wrench size={18} />, labelKey: 'nav.traceStations' },
+  { to: '/trace/products', icon: <Package size={18} />, labelKey: 'nav.traceProducts' },
+  { to: '/trace/trolleys', icon: <ShoppingCart size={18} />, labelKey: 'nav.traceTrolleys' },
+  { to: '/trace/routes', icon: <RouteIcon size={18} />, labelKey: 'nav.traceRoutes' },
+  { to: '/trace/alarms', icon: <BellRing size={18} />, labelKey: 'nav.traceAlarms' },
   { to: '/users', icon: <Users size={18} />, labelKey: 'nav.users', adminOnly: true },
   { to: '/settings', icon: <Settings size={18} />, labelKey: 'nav.settings', adminOnly: true },
   { to: '/audit', icon: <ScrollText size={18} />, labelKey: 'nav.audit', adminOnly: true },
