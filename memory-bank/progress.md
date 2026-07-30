@@ -77,6 +77,14 @@
 - [x] **Doğrulama (API + tarayıcı):** 9 istasyon seed; QR üretimi (SH-20260730-0001 + taranabilir SVG); trolley atama (advanced:true, step ilerledi); rota ihlali 409; typecheck + backend/frontend build temiz (PWA 43 precache).
 - [x] i18n `trace.*` + `nav.trace*` (tr/en); audit `trace_*` entity tipleri; WS `system:notification` (trace).
 
+## What Works (İstasyon inceleme turu #1 — QR üretim istasyonu, 2026-07-30)
+- [x] **Etiket boyut config:** `StationConfig.labelWidth/labelHeight` (mm) — StationsPage formunda `qr_generate` seçiliyken Genişlik/Yükseklik (mm) inputları (varsayılan 50×30). Config JSON olduğu için migration gerekmedi.
+- [x] **`QrLabelModal` (yeni):** etiketi **gerçek mm boyutunda** (CSS `mm`) önizleyen pop-up — QR + altında içerik metni. **Yazdır** → dinamik `@page { size: Wmm Hmm; margin:0 }` + `window.print()`; kapanınca `@page` kaldırılır. `QrCode.sizeMm` prop'u (viewBox kayıpsız ölçek).
+- [x] **QR üretim akışı:** StationWorkPage'de "QR Üret" → modal önizleme (inline card yerine). Altta **"Önceki QR Kodlar"** ızgarası (thumbnail + ID + tarih) — tıklayınca yeniden yazdırma için aynı modal; her üretimde tazelenir.
+- [x] **Backend `GET /api/trace/qr-history?limit=24`:** son ürünleri `{ productId, qrContent, svgPath, size, status, createdAt }` döndürür (`trace.service.listQrHistory`). Frontend `traceService.getQrHistory()`.
+- [x] **ProductsPage** de `QrLabelModal`'e taşındı (eski `.trace-qr-label` CSS'i kaldırıldı). `trace.css`'e `.trace-qr-print` + `.trace-qr-history` + güncel `@media print`.
+- [x] i18n `trace.labelSize/labelWidth/labelHeight/qrHistory/noQrHistory/reprint` (tr/en). Typecheck + build temiz (PWA 43 precache).
+
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 

@@ -1,23 +1,20 @@
-/* ─── Tasarım Sistemi: CSS Custom Properties ───────────────────────────────
-   Modern, şık, sade ve yumuşak hatlı tasarım dili (OE MES v2).
-   Keskin köşeler yok — tüm yüzeyler yumuşak radius + katmanlı gölgeler.  */
+/* ─── Tasarım Sistemi: Modern CSS Custom Properties ─────────────────────────
+   Ultra-modern, premium, cam efektli ve aerodinamik tasarım dili.  */
 
 :root {
-  /* Tipografi */
-  --font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system,
-    'Helvetica Neue', Roboto, sans-serif;
-  --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system,
-    'Helvetica Neue', Roboto, sans-serif;
-  --font-mono: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  /* Tipografi — Plus Jakarta Sans & JetBrains Mono */
+  --font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
 
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
-  --font-size-md: 1rem;
+  --font-size-md: 0.95rem;
   --font-size-lg: 1.125rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: 1.5rem;
-  --font-size-3xl: 2rem;
-  --font-size-display: 3rem;
+  --font-size-xl: 1.35rem;
+  --font-size-2xl: 1.65rem;
+  --font-size-3xl: 2.25rem;
+  --font-size-display: 3.25rem;
 
   /* Spacing */
   --space-1: 0.25rem;
@@ -30,47 +27,43 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
 
-  /* Border radius — yumuşak hatlar (keskin köşe yok) */
-  --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
+  /* Border radius — yumuşak, aerodinamik köşeler */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
   --radius-full: 9999px;
 
   /* Layout ölçüleri */
-  --sidebar-width: 252px;
-  --sidebar-collapsed-width: 76px;
-  --header-height: 60px;
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 78px;
+  --header-height: 68px;
 
   /* Z-index katmanları */
   --z-dropdown: 100;
   --z-overlay: 150;
   --z-modal: 200;
   --z-toast: 300;
-  /* İç içe pop-up'lar (browse, picker) için basamak */
   --z-modal-step: 20;
 
+  /* Geçişler — akıcı cubic-bezier */
+  --transition-fast: 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 420ms cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Geçişler — yumuşak, akıcı */
-  --transition-fast: 150ms ease;
-  --transition-normal: 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  --transition-slow: 380ms cubic-bezier(0.22, 0.61, 0.36, 1);
-
-  /* Durum renkleri (tema bağımsız) */
-  --color-success: #22c55e;
-  --color-success-bg: rgba(34, 197, 94, 0.14);
+  /* Durum renkleri */
+  --color-success: #10b981;
+  --color-success-bg: rgba(16, 185, 129, 0.12);
   --color-warning: #f59e0b;
-  --color-warning-bg: rgba(245, 158, 11, 0.14);
+  --color-warning-bg: rgba(245, 158, 11, 0.12);
   --color-danger: #ef4444;
   --color-danger-bg: rgba(239, 68, 68, 0.12);
-  --color-info: #38bdf8;
-  --color-info-bg: rgba(56, 189, 248, 0.14);
+  --color-info: #3b82f6;
+  --color-info-bg: rgba(59, 130, 246, 0.12);
 
-  /* Odak halkası (erişilebilirlik) */
-  --focus-ring: 0 0 0 3px rgba(253, 201, 84, 0.3);
+  /* Odak halkası */
+  --focus-ring: 0 0 0 3px rgba(253, 201, 84, 0.35);
 
-
-  /* Dokunmatik hedef minimum */
   --touch-target: 44px;
 }

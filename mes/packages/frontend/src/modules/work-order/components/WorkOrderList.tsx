@@ -9,8 +9,9 @@ import {
   Archive,
   Trash2,
   LayoutDashboard,
+  ClipboardList,
 } from 'lucide-react';
-import { Alert, Badge, Button, ConfirmDialog, Select, Table, useToast } from '../../../core/components/common';
+import { Alert, Badge, Button, ConfirmDialog, EmptyState, Select, Table, useToast } from '../../../core/components/common';
 import { workOrderService, WO_STATUS_VARIANT, type WorkOrder, type WorkOrderStatus } from '../services/workOrder.service';
 import { recipeService, type Recipe } from '../../recipe/services/recipe.service';
 import WorkOrderForm from './WorkOrderForm';
@@ -118,7 +119,16 @@ export default function WorkOrderList() {
       {loading ? (
         <p className="text-muted">{t('common.loading')}</p>
       ) : workOrders.length === 0 ? (
-        <p className="text-muted">{t('workOrder.noWorkOrders')}</p>
+        <EmptyState
+          icon={<ClipboardList size={32} />}
+          title={t('workOrder.noWorkOrders')}
+          description={t('common.emptyDescription')}
+          action={
+            <Button onClick={() => setFormOpen(true)}>
+              <Plus size={16} /> {t('workOrder.add')}
+            </Button>
+          }
+        />
       ) : (
         <Table>
           <thead>

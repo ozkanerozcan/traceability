@@ -1,14 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Factory } from 'lucide-react';
+import { Factory, Loader2, Moon, Sun, Languages, Lock, User } from 'lucide-react';
 import { useAuth } from '../../core/hooks/useAuth';
 import { useTheme } from '../../core/hooks/useTheme';
 import { useLanguage } from '../../core/hooks/useLanguage';
 import { useAppStore } from '../../core/store/appStore';
 import { ApiError } from '../../core/services/api';
 import { Alert, Button, Input } from '../../core/components/common';
-import { Moon, Sun, Languages } from 'lucide-react';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -26,16 +25,14 @@ export default function LoginPage() {
 
   const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
 
-  // Oturum geri yüklenirken bekle
   if (isLoading) {
     return (
       <div className="login-page">
-        <span className="text-muted">{t('common.loading')}</span>
+        <Loader2 size={32} className="spin text-muted" />
       </div>
     );
   }
 
-  // Zaten giriş yapılmış — login sayfasında kalma
   if (isAuthenticated) {
     return <Navigate to={from} replace />;
   }
@@ -60,18 +57,22 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <div style={{ position: 'absolute', top: 'var(--space-4)', right: 'var(--space-4)' }} className="flex gap-2">
+      <div style={{ position: 'absolute', top: 'var(--space-6)', right: 'var(--space-6)', zIndex: 10 }} className="flex gap-2">
         <button
           className="btn-icon"
+          style={{ background: 'var(--glass)', border: '1px solid var(--border-color)' }}
           onClick={() => setLanguage(language === 'tr' ? 'en' : 'tr')}
           title={t(`language.${language === 'tr' ? 'en' : 'tr'}`)}
+          aria-label="Dil değiştir"
         >
           <Languages size={18} />
         </button>
         <button
           className="btn-icon"
+          style={{ background: 'var(--glass)', border: '1px solid var(--border-color)' }}
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           title={t(`theme.${theme === 'dark' ? 'light' : 'dark'}`)}
+          aria-label="Tema değiştir"
         >
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
@@ -80,34 +81,43 @@ export default function LoginPage() {
       <div className="login-card">
         <div className="login-logo">
           <div className="login-logo-mark">
-            <Factory size={26} />
+            <Factory size={30} />
           </div>
           <h1>{companyName} MES</h1>
           <p>{t('auth.loginSubtitle')}</p>
         </div>
 
+        <div className="card" style={{ boxShadow: 'var(--shadow-lg)', borderTop: '2px solid var(--accent)' }}>
+          <h2 className="card-title" style={{ textAlign: 'center', marginBottom: 'var(--space-6)' }}>
+            {t('auth.loginTitle')}
+          </h2>
 
-        <div className="card">
-          <h2 className="card-title">{t('auth.loginTitle')}</h2>
           <form onSubmit={handleSubmit}>
-            <Input
-              label={t('auth.username')}
-              name="username"
-              autoComplete="username"
-              autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-            <Input
-              label={t('auth.password')}
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div style={{ position: 'relative' }}>
+              <Input
+                label={t('auth.username')}
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Örn. admin"
+                required
+              />
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <Input
+                label={t('auth.password')}
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+              />
+            </div>
 
             {error && (
               <Alert variant="danger" className="mb-4">
@@ -115,8 +125,15 @@ export default function LoginPage() {
               </Alert>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? t('auth.loggingIn') : t('auth.login')}
+            <Button type="submit" className="w-full" disabled={loading} style={{ marginTop: 'var(--space-2)' }}>
+              {loading ? (
+                <>
+                  <Loader2 size={18} className="spin" />
+                  {t('auth.loggingIn')}
+                </>
+              ) : (
+                t('auth.login')
+              )}
             </Button>
           </form>
         </div>

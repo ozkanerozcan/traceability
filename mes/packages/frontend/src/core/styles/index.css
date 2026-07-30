@@ -5,7 +5,7 @@
 @import '../../modules/recipe/styles/recipe.css';
 @import '../../modules/traceability/styles/trace.css';
 
-/* ─── Reset ──────────────────────────────────────────────────────────────── */
+/* ─── Reset & Base ───────────────────────────────────────────────────────── */
 
 *,
 *::before,
@@ -26,9 +26,12 @@ body {
   font-size: var(--font-size-md);
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   transition:
     background-color var(--transition-normal),
     color var(--transition-normal);
@@ -40,6 +43,8 @@ button {
   border: none;
   background: none;
   color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 input,
@@ -48,11 +53,19 @@ textarea {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 a {
   color: var(--accent);
   text-decoration: none;
+  transition: color var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+a:hover {
+  color: var(--accent-hover);
 }
 
 /* Klavye odağı — erişilebilirlik */
@@ -78,6 +91,27 @@ textarea:focus-visible,
   }
 }
 
+/* ─── Custom Scrollbars ──────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+  transition: background var(--transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 /* ─── Animasyonlar ───────────────────────────────────────────────────────── */
 
 @keyframes spin {
@@ -89,7 +123,7 @@ textarea:focus-visible,
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(16px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -104,7 +138,7 @@ textarea:focus-visible,
   }
   to {
     opacity: 0;
-    transform: translateY(8px) scale(0.97);
+    transform: translateY(12px) scale(0.96);
   }
 }
 
@@ -120,7 +154,7 @@ textarea:focus-visible,
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: translateY(16px) scale(0.97);
+    transform: translateY(24px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -140,7 +174,7 @@ textarea:focus-visible,
 @keyframes dropdown-in {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: translateY(-8px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -149,19 +183,18 @@ textarea:focus-visible,
 }
 
 @keyframes pulse-dot {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
   }
   50% {
-    box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
   }
 }
 
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -170,10 +203,10 @@ textarea:focus-visible,
 }
 
 .spin {
-  animation: spin 0.9s linear infinite;
+  animation: spin 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* ─── Layout ─────────────────────────────────────────────────────────────── */
+/* ─── Layout & Shell ─────────────────────────────────────────────────────── */
 
 .app-shell {
   display: flex;
@@ -183,20 +216,20 @@ textarea:focus-visible,
   position: relative;
 }
 
-/* Sade, dikkat dağıtmayan arka plan dokusu (hero desen) */
 .app-shell::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(1200px 500px at 85% -10%, rgba(253, 201, 84, 0.06), transparent 60%),
-    radial-gradient(1px 1px at 25% 25%, rgba(200, 178, 130, 0.09) 1px, transparent 1.5px);
+    radial-gradient(1000px 600px at 80% -10%, rgba(253, 201, 84, 0.07), transparent 65%),
+    radial-gradient(800px 500px at 10% 90%, rgba(253, 201, 84, 0.04), transparent 60%),
+    radial-gradient(1px 1px at 30% 30%, var(--border-color) 1px, transparent 1.5px);
   background-size:
     auto,
-    28px 28px;
+    auto,
+    32px 32px;
 }
-
 
 .app-main {
   flex: 1;
@@ -209,19 +242,19 @@ textarea:focus-visible,
 .app-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-6);
+  padding: var(--space-6) var(--space-8);
   width: 100%;
   animation: fade-in-up var(--transition-normal);
+  padding-bottom: max(var(--space-6), env(safe-area-inset-bottom, 0px));
 }
 
-
-/* ─── Sidebar ────────────────────────────────────────────────────────────── */
+/* ─── Sidebar Navigasyon ──────────────────────────────────────────────────── */
 
 .sidebar {
   width: var(--sidebar-width);
   background: var(--sidebar-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -238,43 +271,43 @@ textarea:focus-visible,
   height: var(--header-height);
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
 }
 
 .sidebar-brand-mark {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: linear-gradient(145deg, rgba(253, 201, 84, 0.2), rgba(253, 201, 84, 0.05));
-  border: 1px solid rgba(253, 201, 84, 0.3);
+  background: linear-gradient(135deg, rgba(253, 201, 84, 0.25), rgba(253, 201, 84, 0.06));
+  border: 1px solid var(--border-strong);
   color: var(--accent);
+  box-shadow: 0 0 16px rgba(253, 201, 84, 0.15);
 }
 
 .sidebar-brand-text {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--font-size-lg);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-primary);
 }
 
-/* Minimize/maximize butonu — her zaman görünür ve tıklanabilir */
 .sidebar-collapse-btn {
   flex-shrink: 0;
   margin-left: auto;
 }
 
-/* Daraltılmış durumda: marka metni gizlenir, yalnız logo kalır */
 .sidebar.collapsed .sidebar-brand {
   justify-content: center;
   padding: 0;
@@ -284,7 +317,70 @@ textarea:focus-visible,
   display: none;
 }
 
-/* Sidebar alt bölümü: expand butonu + powered-by */
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  position: relative;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.sidebar-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-link.active {
+  background: var(--bg-active);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sidebar-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+.sidebar.collapsed .sidebar-link {
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+.sidebar.collapsed .sidebar-link-label {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-link.active::before {
+  display: none;
+}
+
 .sidebar-bottom {
   border-top: 1px solid var(--border-color);
   display: flex;
@@ -307,75 +403,9 @@ textarea:focus-visible,
   background: var(--bg-active);
 }
 
-/* Daraltılmışta alt bölüm ortalanır */
 .sidebar.collapsed .sidebar-bottom {
   align-items: center;
   padding-bottom: var(--space-2);
-}
-
-
-
-.sidebar-nav {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  min-height: 42px;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  position: relative;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast);
-}
-
-.sidebar-link:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.sidebar-link.active {
-  background: var(--bg-active);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* Aktif bağlantı sol kenar vurgusu */
-.sidebar-link.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-}
-
-.sidebar.collapsed .sidebar-link {
-  justify-content: center;
-  padding: var(--space-2);
-}
-
-.sidebar.collapsed .sidebar-link-label {
-  display: none;
-}
-
-
-.sidebar.collapsed .sidebar-link.active::before {
-  display: none;
 }
 
 .sidebar-footer {
@@ -386,13 +416,11 @@ textarea:focus-visible,
   overflow: hidden;
 }
 
-
 .sidebar.collapsed .sidebar-footer {
   display: none;
 }
 
-
-/* Mobil: sidebar drawer'a dönüşür */
+/* Mobil Drawer */
 .sidebar-overlay {
   display: none;
 }
@@ -411,14 +439,13 @@ textarea:focus-visible,
     transform: translateX(0);
   }
 
-
   .sidebar-overlay {
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     z-index: var(--z-overlay);
     opacity: 0;
     pointer-events: none;
@@ -436,14 +463,15 @@ textarea:focus-visible,
 .header {
   height: var(--header-height);
   background: var(--header-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: 0 var(--space-4);
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  padding-top: env(safe-area-inset-top, 0px);
   flex-shrink: 0;
   position: relative;
   z-index: 10;
@@ -464,24 +492,19 @@ textarea:focus-visible,
   font-size: var(--font-size-lg);
   font-weight: 700;
   letter-spacing: -0.01em;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
-/* WS bağlantı rozeti — nabız noktası */
 .status-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-full);
   background: currentColor;
   flex-shrink: 0;
@@ -491,7 +514,7 @@ textarea:focus-visible,
   animation: pulse-dot 2.2s ease-out infinite;
 }
 
-/* ─── Kullanıcı menüsü (dropdown) ────────────────────────────────────────── */
+/* ─── Kullanıcı Menüsü ────────────────────────────────────────────────────── */
 
 .user-menu {
   position: relative;
@@ -500,27 +523,32 @@ textarea:focus-visible,
 .user-menu-trigger {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  min-height: 40px;
   border-radius: var(--radius-md);
-  transition: background-color var(--transition-fast);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .user-menu-trigger:hover {
   background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, rgba(253, 201, 84, 0.24), rgba(253, 201, 84, 0.07));
-  border: 1px solid rgba(253, 201, 84, 0.35);
+  background: linear-gradient(135deg, rgba(253, 201, 84, 0.3), rgba(253, 201, 84, 0.1));
+  border: 1px solid var(--border-strong);
   color: var(--accent);
-
   font-size: var(--font-size-sm);
   font-weight: 700;
   flex-shrink: 0;
@@ -556,16 +584,16 @@ textarea:focus-visible,
 
 .dropdown-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
-  min-width: 190px;
+  min-width: 200px;
   background: var(--glass-strong);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  padding: var(--space-1);
+  padding: var(--space-2);
   z-index: var(--z-dropdown);
   animation: dropdown-in var(--transition-fast);
 }
@@ -576,7 +604,7 @@ textarea:focus-visible,
   gap: var(--space-2);
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  min-height: 40px;
+  min-height: 44px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
@@ -601,33 +629,40 @@ textarea:focus-visible,
   margin: var(--space-1) var(--space-2);
 }
 
-/* ─── Ortak Bileşenler ───────────────────────────────────────────────────── */
+/* ─── Cards & Glassmorphism ──────────────────────────────────────────────── */
 
 .card {
-  background: var(--bg-secondary);
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-md);
+  transition:
+    transform var(--transition-normal),
+    box-shadow var(--transition-normal),
+    border-color var(--transition-normal);
 }
 
 .card-title {
   font-family: var(--font-display);
   font-size: var(--font-size-lg);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
   margin-bottom: var(--space-4);
+  color: var(--text-primary);
 }
 
-/* ─── Butonlar ───────────────────────────────────────────────────────────── */
+/* ─── Buttons (Touch Optimized 44px+) ────────────────────────────────────── */
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  min-height: 38px;
+  padding: 0.6rem var(--space-4);
+  min-height: 44px;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -636,13 +671,14 @@ textarea:focus-visible,
     background-color var(--transition-fast),
     color var(--transition-fast),
     border-color var(--transition-fast),
-    opacity var(--transition-fast),
+    box-shadow var(--transition-fast),
     transform var(--transition-fast);
   border: 1px solid transparent;
+  user-select: none;
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .btn:disabled {
@@ -653,10 +689,13 @@ textarea:focus-visible,
 .btn-primary {
   background: var(--accent);
   color: var(--accent-text);
+  box-shadow: 0 4px 14px rgba(253, 201, 84, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  box-shadow: 0 6px 20px rgba(253, 201, 84, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
@@ -668,15 +707,19 @@ textarea:focus-visible,
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-hover);
   border-color: var(--border-strong);
+  transform: translateY(-1px);
 }
 
 .btn-danger {
   background: var(--color-danger);
-  color: #fff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25);
 }
 
 .btn-danger:hover:not(:disabled) {
   background: #dc2626;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn-ghost {
@@ -690,8 +733,8 @@ textarea:focus-visible,
 
 .btn-icon {
   padding: var(--space-2);
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
@@ -699,12 +742,14 @@ textarea:focus-visible,
   color: var(--text-secondary);
   transition:
     background-color var(--transition-fast),
-    color var(--transition-fast);
+    color var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .btn-icon:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  transform: translateY(-1px);
 }
 
 .btn-icon:disabled {
@@ -712,21 +757,20 @@ textarea:focus-visible,
   cursor: not-allowed;
 }
 
-/* Kompakt buton — tablo aksiyonları, yoğun alanlar */
 .btn-sm {
   padding: var(--space-1) var(--space-3);
-  min-height: 30px;
+  min-height: 34px;
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
 }
 
-/* ─── Form Elemanları ────────────────────────────────────────────────────── */
+/* ─── Form Inputs ───────────────────────────────────────────────────────── */
 
 .input,
 .select {
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  min-height: 40px;
+  min-height: 44px;
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -750,7 +794,7 @@ textarea:focus-visible,
 
 textarea.input {
   resize: vertical;
-  min-height: 80px;
+  min-height: 84px;
 }
 
 .form-group {
@@ -763,7 +807,7 @@ textarea.input {
 
 .form-label {
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
@@ -772,20 +816,107 @@ textarea.input {
   color: var(--color-danger);
 }
 
-/* Alan altı ipucu metni */
-.form-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  margin-top: calc(-1 * var(--space-2));
-  margin-bottom: var(--space-4);
+/* ─── Table Design ───────────────────────────────────────────────────────── */
+
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
 }
 
-/* ─── Alert (bilgi/hata şeridi) ──────────────────────────────────────────── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.table th:first-child {
+  border-top-left-radius: var(--radius-lg);
+}
+
+.table th:last-child {
+  border-top-right-radius: var(--radius-lg);
+}
+
+.table td {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+.table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+/* ─── Badges ─────────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+}
+
+.badge-warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+
+.badge-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+}
+
+.badge-info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  border: 1px solid color-mix(in srgb, var(--color-info) 30%, transparent);
+}
+
+.badge-muted {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+/* ─── Alert ──────────────────────────────────────────────────────────────── */
 
 .alert {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
@@ -807,28 +938,28 @@ textarea.input {
 .alert-success {
   background: var(--color-success-bg);
   color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
 }
 
 .alert-warning {
   background: var(--color-warning-bg);
   color: var(--color-warning);
-  border-color: color-mix(in srgb, var(--color-warning) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
 }
 
 .alert-danger {
   background: var(--color-danger-bg);
   color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
 }
 
 .alert-info {
   background: var(--color-info-bg);
   color: var(--color-info);
-  border-color: color-mix(in srgb, var(--color-info) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
 }
 
-/* ─── Checkbox (yumuşak, tema uyumlu) ────────────────────────────────────── */
+/* ─── Checkbox ───────────────────────────────────────────────────────────── */
 
 .checkbox {
   display: inline-flex;
@@ -849,8 +980,8 @@ textarea.input {
 }
 
 .checkbox-box {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
   border-radius: var(--radius-xs);
   border: 1.5px solid var(--border-strong);
@@ -887,123 +1018,19 @@ textarea.input {
   transform: rotate(-45deg) translateY(-1px) scale(1);
 }
 
-.checkbox-input:focus-visible + .checkbox-box {
-  box-shadow: var(--focus-ring);
-}
-
-.checkbox-input:disabled + .checkbox-box {
-  opacity: 0.5;
-}
-
 .checkbox-label {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
 
-/* Mobil: yan yana form satırları alt alta */
-@media (max-width: 640px) {
-  .form-group > .flex[class*='gap-3'],
-  form > .flex[class*='gap-3'] {
-    flex-direction: column;
-    gap: 0;
-  }
-}
-
-/* ─── Tablo ──────────────────────────────────────────────────────────────── */
-
-.table-container {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-}
-
-.table th {
-  text-align: left;
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
-
-.table th:first-child {
-  border-top-left-radius: var(--radius-lg);
-}
-
-.table th:last-child {
-  border-top-right-radius: var(--radius-lg);
-}
-
-.table td {
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--border-color);
-}
-
-.table tbody tr {
-  transition: background-color var(--transition-fast);
-}
-
-.table tbody tr:hover {
-  background: var(--bg-hover);
-}
-
-/* ─── Badge ──────────────────────────────────────────────────────────────── */
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 3px var(--space-2);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.badge-success {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-}
-
-.badge-warning {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-}
-
-.badge-danger {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-}
-
-.badge-info {
-  background: var(--color-info-bg);
-  color: var(--color-info);
-}
-
-.badge-muted {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-/* ─── Modal ──────────────────────────────────────────────────────────────── */
+/* ─── Modal (Desktop & Base) ─────────────────────────────────────────────── */
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1014,8 +1041,8 @@ textarea.input {
 
 .modal {
   background: var(--glass-strong);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
@@ -1025,10 +1052,15 @@ textarea.input {
   max-height: 90dvh;
   overflow-y: auto;
   animation: modal-in var(--transition-normal);
+  position: relative;
 }
 
 .modal-wide {
-  max-width: 820px;
+  max-width: 840px;
+}
+
+.modal-handle-bar {
+  display: none;
 }
 
 .modal-header {
@@ -1036,7 +1068,7 @@ textarea.input {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
@@ -1049,12 +1081,12 @@ textarea.input {
 .modal-title {
   font-family: var(--font-display);
   font-size: var(--font-size-lg);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .modal-body {
-  padding: var(--space-5);
+  padding: var(--space-6);
 }
 
 .modal-footer {
@@ -1062,18 +1094,14 @@ textarea.input {
   justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border-color);
 }
 
-/* Footer'da sola yaslı aksiyon için boşluk doldurucu */
-.modal-footer .spacer {
-  flex: 1;
-}
+/* ─── Mobil Bottom Sheet Modal (< 768px) ─────────────────────────────────── */
 
-/* Mobil: bottom-sheet davranışı */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .modal-overlay {
     padding: 0;
     align-items: flex-end;
@@ -1081,32 +1109,62 @@ textarea.input {
 
   .modal,
   .modal-wide {
-    max-width: 100%;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    max-height: 92dvh;
-    animation: modal-sheet-in var(--transition-normal);
-    /* iOS güvenli alan */
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    max-width: 100% !important;
+    width: 100% !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-top-left-radius: 28px !important;
+    border-top-right-radius: 28px !important;
+    max-height: 88dvh !important;
+    margin: 0 !important;
+    animation: modal-sheet-in var(--transition-normal) !important;
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom, 0px));
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+  }
+
+  .modal-handle-bar {
+    display: block;
+    width: 40px;
+    height: 5px;
+    border-radius: var(--radius-full);
+    background: var(--border-strong);
+    margin: var(--space-2) auto 0;
+    opacity: 0.7;
+  }
+
+  .modal-header {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .modal-body {
+    padding: var(--space-4);
+  }
+
+  .modal-footer {
+    padding: var(--space-3) var(--space-4);
+    flex-direction: column-reverse;
+    gap: var(--space-2);
   }
 
   .modal-footer .btn {
-    flex: 1;
-    min-height: var(--touch-target);
+    width: 100%;
+    min-height: 48px;
   }
 }
 
-/* ─── Toast Bildirimleri ─────────────────────────────────────────────────── */
+/* ─── Toast ──────────────────────────────────────────────────────────────── */
 
 .toast-container {
   position: fixed;
-  top: calc(var(--header-height) + var(--space-3));
-  right: var(--space-4);
+  top: calc(var(--header-height) + var(--space-4));
+  right: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   z-index: var(--z-toast);
-  width: min(380px, calc(100vw - var(--space-8)));
+  width: min(400px, calc(100vw - var(--space-8)));
   pointer-events: none;
 }
 
@@ -1115,12 +1173,12 @@ textarea.input {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   background: var(--glass-strong);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--border-color);
-  border-left: 3px solid var(--accent);
+  border-left: 4px solid var(--accent);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   animation: toast-in var(--transition-normal);
@@ -1133,7 +1191,6 @@ textarea.input {
 .toast-success {
   border-left-color: var(--color-success);
 }
-
 .toast-success .toast-icon {
   color: var(--color-success);
 }
@@ -1141,7 +1198,6 @@ textarea.input {
 .toast-error {
   border-left-color: var(--color-danger);
 }
-
 .toast-error .toast-icon {
   color: var(--color-danger);
 }
@@ -1149,7 +1205,6 @@ textarea.input {
 .toast-warning {
   border-left-color: var(--color-warning);
 }
-
 .toast-warning .toast-icon {
   color: var(--color-warning);
 }
@@ -1157,14 +1212,13 @@ textarea.input {
 .toast-info {
   border-left-color: var(--color-info);
 }
-
 .toast-info .toast-icon {
   color: var(--color-info);
 }
 
 .toast-icon {
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .toast-body {
@@ -1174,7 +1228,7 @@ textarea.input {
 }
 
 .toast-title {
-  font-weight: 600;
+  font-weight: 700;
   margin-bottom: 2px;
 }
 
@@ -1188,12 +1242,12 @@ textarea.input {
     top: auto;
     right: var(--space-3);
     left: var(--space-3);
-    bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0));
+    bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
     width: auto;
   }
 }
 
-/* ─── Login Sayfası ──────────────────────────────────────────────────────── */
+/* ─── Login Screen ───────────────────────────────────────────────────────── */
 
 .login-page {
   min-height: 100vh;
@@ -1207,46 +1261,58 @@ textarea.input {
   overflow: hidden;
 }
 
-/* Login arka plan atmosferi — sade ışık lekeleri + ızgara dokusu */
 .login-page::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(640px 400px at 15% 20%, rgba(253, 201, 84, 0.11), transparent 65%),
-    radial-gradient(520px 360px at 85% 80%, rgba(253, 201, 84, 0.07), transparent 65%),
-    radial-gradient(1px 1px at 50% 50%, rgba(200, 178, 130, 0.11) 1px, transparent 1.5px);
-
+    radial-gradient(700px 500px at 20% 20%, rgba(253, 201, 84, 0.14), transparent 70%),
+    radial-gradient(600px 450px at 80% 80%, rgba(253, 201, 84, 0.08), transparent 70%),
+    radial-gradient(1px 1px at 50% 50%, var(--border-color) 1px, transparent 1.5px);
   background-size:
     auto,
     auto,
-    26px 26px;
+    30px 30px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
+  max-width: 440px;
   position: relative;
   animation: fade-in-up var(--transition-slow);
 }
 
 .login-logo {
   text-align: center;
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-8);
 }
 
 .login-logo h1 {
   font-family: var(--font-display);
   font-size: var(--font-size-2xl);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .login-logo p {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   margin-top: var(--space-1);
+}
+
+.login-logo-mark {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--space-4);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(253, 201, 84, 0.3), rgba(253, 201, 84, 0.08));
+  border: 1px solid var(--border-strong);
+  color: var(--accent);
+  box-shadow: 0 0 24px rgba(253, 201, 84, 0.2);
 }
 
 .login-footer {
@@ -1256,21 +1322,45 @@ textarea.input {
   color: var(--text-muted);
 }
 
-.login-logo-mark {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto var(--space-3);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(145deg, rgba(253, 201, 84, 0.2), rgba(253, 201, 84, 0.05));
-  border: 1px solid rgba(253, 201, 84, 0.3);
-  color: var(--accent);
+/* ─── Mobil Kartlar & Sayfa Yerleşimi ────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .app-content {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .card {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+  }
+
+  .table-container {
+    border-radius: var(--radius-md);
+  }
+
+  .table th,
+  .table td {
+    padding: var(--space-3) var(--space-3);
+  }
+
+  .page-header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .page-header-actions > * {
+    width: 100%;
+  }
+
+  .page-header-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
-
-/* ─── Yardımcı Sınıflar ──────────────────────────────────────────────────── */
+/* ─── Helpers ────────────────────────────────────────────────────────────── */
 
 .text-muted {
   color: var(--text-muted);
@@ -1304,71 +1394,136 @@ textarea.input {
   justify-content: space-between;
 }
 
-.gap-1 {
-  gap: var(--space-1);
-}
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
 
-.gap-2 {
-  gap: var(--space-2);
-}
+.mt-2 { margin-top: var(--space-2); }
+.mt-4 { margin-top: var(--space-4); }
+.mb-4 { margin-bottom: var(--space-4); }
+.w-full { width: 100%; }
 
-.gap-3 {
-  gap: var(--space-3);
-}
+/* ─── Pop-up Select & Picker Styles ──────────────────────────────────────── */
 
-.gap-4 {
-  gap: var(--space-4);
-}
-
-.mt-2 {
-  margin-top: var(--space-2);
-}
-
-.mt-4 {
-  margin-top: var(--space-4);
-}
-
-.mb-4 {
-  margin-bottom: var(--space-4);
-}
-
-.w-full {
+.select-picker-trigger {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
-/* ─── Responsive İnce Ayarlar ────────────────────────────────────────────── */
-
-@media (max-width: 640px) {
-  .app-content {
-    padding: var(--space-4);
-  }
-
-  /* Mobilde aksiyon satırı alt alta dizilir */
-  .page-header-actions {
-    flex-wrap: wrap;
-  }
+.select-picker-trigger:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
 }
 
-/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+.select-picker-trigger:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+.select-picker-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-full);
-  border: 2px solid transparent;
-  background-clip: padding-box;
+.select-picker-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
-  border: 2px solid transparent;
-  background-clip: padding-box;
+.select-picker-trigger[aria-expanded='true'] .select-picker-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
 }
+
+.picker-popup-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 60vh;
+}
+
+.picker-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.picker-search-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.picker-search-input {
+  padding-left: calc(var(--space-3) * 2 + 16px) !important;
+}
+
+.picker-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+  max-height: 48vh;
+  padding-right: var(--space-1);
+}
+
+.picker-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  min-height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-align: left;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.picker-option-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.picker-option-item.selected {
+  background: var(--bg-active);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.picker-option-check {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+

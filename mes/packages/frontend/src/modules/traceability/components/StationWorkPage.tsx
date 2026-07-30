@@ -3,12 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Printer, CheckCircle2, XCircle } from 'lucide-react';
 import { Alert, Badge, Button, Card, Input, useToast } from '../../../core/components/common';
-import { traceService, type QrLabel, type Station } from '../services/trace.service';
+import { traceService, type QrHistoryItem, type Station } from '../services/trace.service';
 import QrCode from './QrCode';
+import QrLabelModal, { type QrLabelData } from './QrLabelModal';
 
 /**
  * İstasyon çalışma ekranı — capability'lere göre dinamik UI.
  * Tarama (scan) odaklı: önce trolley/product QR tara → sistem doğrular → veri girişi → kaydet.
+ * QR üretim istasyonunda: QR Üret → mm boyutlu önizleme pop-up'ı + yazdır; altta önceki QR'lar.
  */
 export default function StationWorkPage() {
   const { t } = useTranslation();
@@ -27,7 +29,11 @@ export default function StationWorkPage() {
   const [direction, setDirection] = useState<'entry' | 'exit'>('entry');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message?: string; alarm?: boolean } | null>(null);
-  const [qrLabel, setQrLabel] = useState<QrLabel | null>(null);
+
+  // QR etiket önizleme + geçmiş
+  const [qrLabel, setQrLabel] = useState<QrLabelData | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [history, setHistory] = useState<QrHistoryItem[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -48,6 +54,21 @@ export default function StationWorkPage() {
 
   const caps = station?.capabilities ?? [];
   const has = (c: string) => caps.includes(c as never);
+  const isQrStation = has('qr_generate');
+
+  // Önceki QR'lar (yalnız QR üretim istasyonunda)
+  const loadHistory = useCallback(async () => {
+    try {
+      const { items } = await traceService.getQrHistory(24);
+      setHistory(items);
+    } catch {
+      // geçmiş yüklenemezse sessiz geç
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isQrStation) void loadHistory();
+  }, [isQrStation, loadHistory]);
 
   const doScan = async (overrides: Partial<Parameters<typeof traceService.scan>[0]> = {}) => {
     if (!station) return;
@@ -64,7 +85,11 @@ export default function StationWorkPage() {
         ...overrides,
       });
       setResult({ ok: true, message: res.message, alarm: res.alarm });
-      if (res.qrLabel) setQrLabel(res.qrLabel);
+      if (res.qrLabel) {
+        setQrLabel(res.qrLabel);
+        setQrModalOpen(true);
+        void loadHistory();
+      }
       if (res.productId && !productId) setProductId(res.productId);
       toast.success(res.message ?? t('common.success'));
     } catch (err) {
@@ -80,8 +105,10 @@ export default function StationWorkPage() {
     void doScan({ status });
   };
 
-  const handlePrint = () => {
-    window.print();
+  // Geçmişten bir QR'a tıkla → yeniden yazdırma önizlemesi
+  const openFromHistory = (item: QrHistoryItem) => {
+    setQrLabel({ productId: item.productId, svgPath: item.svgPath, size: item.size });
+    setQrModalOpen(true);
   };
 
   if (loading) {
@@ -200,20 +227,46 @@ export default function StationWorkPage() {
             )}
           </div>
         </Card>
-
-        {/* ─── QR etiket ─── */}
-        {qrLabel && (
-          <Card title={t('trace.qrLabel')}>
-            <div className="trace-qr-label">
-              <QrCode svgPath={qrLabel.svgPath} size={qrLabel.size} scale={6} />
-              <div className="trace-qr-text">{qrLabel.productId}</div>
-            </div>
-            <Button variant="secondary" onClick={handlePrint} className="mt-4">
-              <Printer size={16} /> {t('trace.print')}
-            </Button>
-          </Card>
-        )}
       </div>
+
+      {/* ─── Önceki QR kodları ─── */}
+      {isQrStation && (
+        <div className="mt-4">
+        <Card title={t('trace.qrHistory')}>
+          {history.length === 0 ? (
+            <p className="text-muted">{t('trace.noQrHistory')}</p>
+          ) : (
+            <div className="trace-qr-history">
+              {history.map((item) => (
+                <button
+                  key={item.productId}
+                  className="trace-qr-history-item"
+                  onClick={() => openFromHistory(item)}
+                  title={t('trace.reprint')}
+                >
+                  <QrCode svgPath={item.svgPath} size={item.size} scale={2} />
+                  <span className="trace-qr-history-id">{item.productId}</span>
+                  {item.createdAt && (
+                    <span className="trace-qr-history-date">
+                      {new Date(item.createdAt + 'Z').toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+        </div>
+      )}
+
+      {/* ─── QR etiket önizleme + yazdırma pop-up'ı ─── */}
+      <QrLabelModal
+        open={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        label={qrLabel}
+        labelWidthMm={station.config.labelWidth}
+        labelHeightMm={station.config.labelHeight}
+      />
     </div>
   );
 }

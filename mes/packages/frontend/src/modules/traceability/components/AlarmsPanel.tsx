@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCheck } from 'lucide-react';
-import { Alert, Badge, Button, Table, useToast } from '../../../core/components/common';
+import { BellOff, CheckCheck } from 'lucide-react';
+import { Alert, Badge, Button, EmptyState, Table, useToast } from '../../../core/components/common';
 import { traceService, type Alarm } from '../services/trace.service';
 
 const SEVERITY_VARIANT: Record<Alarm['severity'], 'info' | 'warning' | 'danger'> = {
@@ -58,7 +58,11 @@ export default function AlarmsPanel() {
       {loading ? (
         <p className="text-muted">{t('common.loading')}</p>
       ) : alarms.length === 0 ? (
-        <Alert variant="success">{t('trace.noAlarms')}</Alert>
+        <EmptyState
+          icon={<BellOff size={32} />}
+          title={t('trace.noAlarms')}
+          description="Sistemde aktif veya müdahale bekleyen alarm bulunmamaktadır."
+        />
       ) : (
         <Table>
           <thead>

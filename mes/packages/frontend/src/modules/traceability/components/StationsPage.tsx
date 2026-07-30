@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, Play } from 'lucide-react';
-import { Alert, Badge, Button, Checkbox, ConfirmDialog, Input, Modal, Select, Table, useToast } from '../../../core/components/common';
+import { Plus, Pencil, Trash2, Play, Wrench } from 'lucide-react';
+import { Alert, Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Select, Table, useToast } from '../../../core/components/common';
 import { traceService, CAPABILITY_KEYS, type Station, type StationCapability } from '../services/trace.service';
 import { plcService, tagService, type PlcProfile, type PlcTag } from '../../plc-gateway/services/plc.service';
 
@@ -76,6 +76,17 @@ export default function StationsPage() {
 
       {loading ? (
         <p className="text-muted">{t('common.loading')}</p>
+      ) : stations.length === 0 ? (
+        <EmptyState
+          icon={<Wrench size={32} />}
+          title={t('common.emptyTitle')}
+          description={t('common.emptyDescription')}
+          action={
+            <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
+              <Plus size={16} /> {t('trace.addStation')}
+            </Button>
+          }
+        />
       ) : (
         <Table>
           <thead>
@@ -173,6 +184,8 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
   const [plcTagId, setPlcTagId] = useState<number | ''>('');
   const [waitHours, setWaitHours] = useState<number>(24);
   const [groupSize, setGroupSize] = useState<number>(4);
+  const [labelWidth, setLabelWidth] = useState<number>(50);
+  const [labelHeight, setLabelHeight] = useState<number>(30);
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -187,6 +200,8 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
       setPlcTagId(station?.config.plcTagId ?? '');
       setWaitHours(station?.config.waitHours ?? 24);
       setGroupSize(station?.config.groupSize ?? 4);
+      setLabelWidth(station?.config.labelWidth ?? 50);
+      setLabelHeight(station?.config.labelHeight ?? 30);
       setIsActive(station?.isActive ?? true);
       setError(null);
       if (station?.config.plcId) onPlcChange(station.config.plcId);
@@ -210,6 +225,7 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
         ...(plcTagId ? { plcTagId: Number(plcTagId) } : {}),
         ...(caps.includes('wait_control') ? { waitHours } : {}),
         ...(caps.includes('plc_acquire') ? { groupSize } : {}),
+        ...(caps.includes('qr_generate') ? { labelWidth, labelHeight } : {}),
       };
       if (isEdit) {
         await traceService.updateStation(station.id, {
@@ -313,6 +329,20 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
 
       {caps.includes('wait_control') && (
         <Input label={t('trace.waitHours')} type="number" min={1} value={waitHours} onChange={(e) => setWaitHours(Number(e.target.value))} />
+      )}
+
+      {caps.includes('qr_generate') && (
+        <div className="form-group">
+          <span className="form-label">{t('trace.labelSize')}</span>
+          <div className="flex gap-3">
+            <div style={{ flex: 1 }}>
+              <Input label={t('trace.labelWidth')} type="number" min={10} max={300} value={labelWidth} onChange={(e) => setLabelWidth(Number(e.target.value))} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Input label={t('trace.labelHeight')} type="number" min={10} max={300} value={labelHeight} onChange={(e) => setLabelHeight(Number(e.target.value))} />
+            </div>
+          </div>
+        </div>
       )}
 
       <Checkbox label={t('common.active')} checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />

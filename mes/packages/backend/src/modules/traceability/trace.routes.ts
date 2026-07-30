@@ -14,6 +14,7 @@ import {
   listAlarms,
   listBatches,
   listProducts,
+  listQrHistory,
   listRoutes,
   listStations,
   listTrolleys,
@@ -240,6 +241,22 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     logQrPrint(product.product_id, product.qr_content ?? product.product_id, request.user.sub);
     return { productId: product.product_id, svgPath: path, size };
   });
+
+  // ─── QR geçmişi (son üretilen QR'lar — önizleme/yeniden yazdırma) ───────
+  app.get<{ Querystring: { limit?: string } }>('/qr-history', async (request) => ({
+    items: listQrHistory(request.query.limit ? Number(request.query.limit) : 24).map((p) => {
+      const content = p.qr_content ?? p.product_id;
+      const { path, size } = qrToSvgPath(content);
+      return {
+        productId: p.product_id,
+        qrContent: content,
+        svgPath: path,
+        size,
+        status: p.status,
+        createdAt: (p as { created_at?: string }).created_at ?? null,
+      };
+    }),
+  }));
 
   // ─── Parti numaraları ────────────────────────────────────────────────────
   app.get<{ Querystring: { kind?: string } }>('/batches', async (request) => ({

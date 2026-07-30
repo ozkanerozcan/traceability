@@ -1,34 +1,36 @@
-/* ─── Dark Tema (varsayılan) ───────────────────────────────────────────────
-   Endüstriyel kontrol odası hissi: derin gece tonları, amber vurgu.      */
+/* ─── Modern Dark Tema ───────────────────────────────────────────────────
+   Endüstriyel kontrol odası: Derin obsidian gece tonları, buzlu cam ve neon amber vurgu. */
 
 [data-theme='dark'] {
-  --bg-primary: #12100c;
-  --bg-secondary: #1a1712;
-  --bg-tertiary: #2a251c;
-  --bg-hover: rgba(200, 178, 130, 0.08);
-  --bg-active: rgba(253, 201, 84, 0.13);
-  --bg-input: #14110d;
+  --bg-primary: #090b10;
+  --bg-secondary: #111520;
+  --bg-tertiary: #192030;
+  --bg-hover: rgba(253, 201, 84, 0.08);
+  --bg-active: rgba(253, 201, 84, 0.16);
+  --bg-input: #0d1018;
 
-  --text-primary: #f4efe6;
-  --text-secondary: #b3a996;
-  --text-muted: #7d7466;
-  --text-inverse: #12100c;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #090b10;
 
-  --border-color: rgba(179, 169, 150, 0.13);
-  --border-strong: rgba(179, 169, 150, 0.26);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(253, 201, 84, 0.25);
 
   --accent: #fdc954;
-  --accent-hover: #fdd97e;
-  --accent-text: #231a05;
+  --accent-hover: #ffda83;
+  --accent-text: #181204;
+  --accent-glow: 0 0 20px rgba(253, 201, 84, 0.3);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.7);
 
-  --sidebar-bg: rgba(18, 16, 12, 0.9);
-  --header-bg: rgba(18, 16, 12, 0.75);
-  --glass: rgba(26, 23, 18, 0.72);
-  --glass-strong: rgba(26, 23, 18, 0.92);
+  --sidebar-bg: rgba(13, 16, 24, 0.85);
+  --header-bg: rgba(9, 11, 16, 0.8);
+  --glass: rgba(17, 21, 32, 0.65);
+  --glass-strong: rgba(17, 21, 32, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.08);
 
   color-scheme: dark;
 }

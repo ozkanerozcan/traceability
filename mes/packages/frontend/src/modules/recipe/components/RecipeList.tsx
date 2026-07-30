@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, LayoutDashboard, Lock } from 'lucide-react';
-import { Alert, Badge, Button, ConfirmDialog, Table, useToast } from '../../../core/components/common';
+import { Plus, Pencil, Trash2, LayoutDashboard, Lock, BookOpen } from 'lucide-react';
+import { Alert, Badge, Button, ConfirmDialog, EmptyState, Table, useToast } from '../../../core/components/common';
 
 import { recipeService, type Recipe } from '../services/recipe.service';
 import RecipeForm from './RecipeForm';
@@ -71,7 +71,16 @@ export default function RecipeList() {
       {loading ? (
         <p className="text-muted">{t('common.loading')}</p>
       ) : recipes.length === 0 ? (
-        <p className="text-muted">{t('recipe.noRecipes')}</p>
+        <EmptyState
+          icon={<BookOpen size={32} />}
+          title={t('recipe.noRecipes')}
+          description={t('common.emptyDescription')}
+          action={
+            <Button onClick={() => { setEditingRecipe(null); setFormOpen(true); }}>
+              <Plus size={16} /> {t('recipe.addRecipe')}
+            </Button>
+          }
+        />
       ) : (
         <Table>
           <thead>

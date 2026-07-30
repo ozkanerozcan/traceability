@@ -4,9 +4,11 @@ import ThemeProvider from './core/components/ThemeProvider/ThemeProvider';
 import LanguageProvider from './core/components/LanguageProvider/LanguageProvider';
 import ProtectedRoute from './core/components/ProtectedRoute/ProtectedRoute';
 import Layout from './core/components/Layout/Layout';
+import ErrorBoundary from './core/components/ErrorBoundary/ErrorBoundary';
 import { ToastProvider } from './core/components/common';
 import LoginPage from './modules/auth/LoginPage';
 import { useAuthRestore } from './core/hooks/useAuth';
+import { Loader2 } from 'lucide-react';
 
 // Modül sayfaları lazy load — Faz 4-6'da diğer modüller eklenecek
 const DashboardPage = lazy(() => import('./modules/dashboard/DashboardPage'));
@@ -29,8 +31,21 @@ const TraceAlarmsPage = lazy(() => import('./modules/traceability/components/Ala
 
 function PageLoader() {
   return (
-    <div className="flex items-center justify-between" style={{ justifyContent: 'center', padding: 'var(--space-12)' }}>
-      <span className="text-muted">Yükleniyor...</span>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '60vh',
+        gap: 'var(--space-3)',
+        color: 'var(--accent)',
+      }}
+    >
+      <Loader2 size={32} className="spin" />
+      <span className="text-muted" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
+        Modül Yükleniyor...
+      </span>
     </div>
   );
 }
@@ -41,44 +56,47 @@ export default function App() {
   useAuthRestore();
 
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
+    <ErrorBoundary>
+      <ThemeProvider>
+        <LanguageProvider>
+          <ToastProvider>
+            <BrowserRouter>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
 
-                {/* Korumalı alan */}
-                <Route element={<ProtectedRoute />}>
-                  <Route element={<Layout />}>
-                    <Route index element={<DashboardPage />} />
-                    <Route path="dashboard/:workOrderId" element={<DashboardPage />} />
-                    <Route path="plc" element={<PlcListPage />} />
-                    <Route path="plc/:id/tags" element={<TagListPage />} />
-                    <Route path="plc/:id/monitor" element={<LiveMonitorPage />} />
-                    <Route path="plc/read-write" element={<ReadWritePage />} />
-                    <Route path="recipes" element={<RecipeListPage />} />
-                    <Route path="recipes/:id/dashboard" element={<DashboardEditorPage />} />
-                    <Route path="work-orders" element={<WorkOrderListPage />} />
-                    <Route path="users" element={<UserListPage />} />
-                    <Route path="settings" element={<SettingsPage />} />
-                    <Route path="audit" element={<AuditLogPage />} />
-                    <Route path="trace/stations" element={<TraceStationsPage />} />
-                    <Route path="trace/work/:stationKey" element={<TraceStationWorkPage />} />
-                    <Route path="trace/products" element={<TraceProductsPage />} />
-                    <Route path="trace/trolleys" element={<TraceTrolleysPage />} />
-                    <Route path="trace/routes" element={<TraceRoutesPage />} />
-                    <Route path="trace/alarms" element={<TraceAlarmsPage />} />
+                  {/* Korumalı alan */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<Layout />}>
+                      <Route index element={<DashboardPage />} />
+                      <Route path="dashboard/:workOrderId" element={<DashboardPage />} />
+                      <Route path="plc" element={<PlcListPage />} />
+                      <Route path="plc/:id/tags" element={<TagListPage />} />
+                      <Route path="plc/:id/monitor" element={<LiveMonitorPage />} />
+                      <Route path="plc/read-write" element={<ReadWritePage />} />
+                      <Route path="recipes" element={<RecipeListPage />} />
+                      <Route path="recipes/:id/dashboard" element={<DashboardEditorPage />} />
+                      <Route path="work-orders" element={<WorkOrderListPage />} />
+                      <Route path="users" element={<UserListPage />} />
+                      <Route path="settings" element={<SettingsPage />} />
+                      <Route path="audit" element={<AuditLogPage />} />
+                      <Route path="trace/stations" element={<TraceStationsPage />} />
+                      <Route path="trace/work/:stationKey" element={<TraceStationWorkPage />} />
+                      <Route path="trace/products" element={<TraceProductsPage />} />
+                      <Route path="trace/trolleys" element={<TraceTrolleysPage />} />
+                      <Route path="trace/routes" element={<TraceRoutesPage />} />
+                      <Route path="trace/alarms" element={<TraceAlarmsPage />} />
+                    </Route>
                   </Route>
-                </Route>
 
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
-        </ToastProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          </ToastProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
+

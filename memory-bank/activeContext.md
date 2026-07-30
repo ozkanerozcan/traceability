@@ -1,7 +1,7 @@
 # Active Context — OE MES
 
 ## Current Focus
-**Faz 1–6 + Ürün İzlenebilirliği TAMAMLANDI** (2026-07-30). Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings, **traceability**) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel). Son büyük özellik: **Product Traceability** (QR üretimi + capability bazlı istasyon/rota motoru). Kalan: Faz 7 (PWA & Polish).
+**Faz 1–6 + Ürün İzlenebilirliği TAMAMLANDI** (2026-07-30). Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings, **traceability**) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel). Son büyük özellik: **Product Traceability** (QR üretimi + capability bazlı istasyon/rota motoru). İstasyon bazlı inceleme turu başladı — **QR üretim istasyonu** geliştirildi (mm boyutlu etiket önizleme pop-up'ı + yazdırma + önceki QR'lar). Kalan: Faz 7 (PWA & Polish) + diğer istasyonların gözden geçirilmesi.
 
 ## What Exists Right Now
 
@@ -23,7 +23,7 @@
 
 ## Next Steps (from implementation_plan.md)
 1. **Finish Faz 3:** recipe protection rules (silme/düzenleme engeli — prevent delete/edit of recipes in use), verify DashboardEditor + TagSelect end-to-end, `PUT /api/recipes/:id/dashboard` layout persistence.
-2. **Faz 4 (İş Emri):** work-order backend module + frontend pages, auto order number `WO-YYYYMMDD-NNN`, state machine (draft→active→paused→completed→archived), DataCollector service with transaction batching, role-based authorization.
+2. **Faz 4 (İş Emri):** work-order backend module + frontend pages, auto order number `WO-YYYYMMDD-NNN`, state machine (draft→active→paused→completed→archived), DataCollector service with transaction batching, role-based authorization.a
 3. **Faz 5 (Dashboard):** widget system + palette + config popup, Numeric/Gauge/Trend/Status/Table widgets, live WS updates, active-WO switching, recipe preview mode.
 4. **Faz 6:** user management, permissions, settings, module manager, branding, archive, audit viewer.
 5. **Faz 7:** PWA, offline cache, responsive polish, Docker optimization.
@@ -73,6 +73,11 @@
   - **Rota/task:** ürün bazlı istasyonlarda rota dışı → 409 `ROUTE_VIOLATION`; NOK → `rejected` + alarm; conditioning erken çıkış → alarm + PLC'ye alarm yaz + reddet. Filling=groupSize'lı grup, Probing=tüm arabaya yay.
   - **Frontend:** StationsPage (CRUD + capability toggle + PLC config), StationWorkPage (capability'e göre dinamik UI — tarama odaklı), ProductsPage (detay + QR etiket/yazdır), TrolleysPage (20 slot), RoutesPage (adım siralama), AlarmsPanel (ack). Rotalar `/trace/*`, sidebar nav.
   - **Doğrulama:** QR üretimi (SH-20260730-0001 + taranabilir SVG), trolley atama (advanced:true), rota ihlali 409 (fresh product→drilling reddedildi), typecheck + backend/frontend build temiz (PWA 43 precache). Commit `6fdb751` (+`488c66c` chore) → origin/main push edildi.
+- **2026-07-30 (İstasyon inceleme turu #1 — QR üretim istasyonu):** Operatör "QR Üret" dediğinde mm boyutlu etiket önizleme pop-up'ı + yazdırma + önceki QR'lar listesi eklendi.
+  - **Backend:** `StationConfig`'e `labelWidth`/`labelHeight` (mm) eklendi (config JSON — migration gerekmedi). Yeni endpoint `GET /api/trace/qr-history?limit=24` → son ürünleri `{ productId, qrContent, svgPath, size, status, createdAt }` olarak döndürür (svgPath backend'de `qrToSvgPath` ile). `trace.service.listQrHistory()`.
+  - **Frontend:** Yeni `QrLabelModal.tsx` — etiketi **gerçek mm boyutunda** (CSS `mm` birimi) render eder (QR + altında içerik metni); **Yazdır** butonu dinamik `@page { size: Wmm Hmm; margin:0 }` enjekte edip `window.print()` yapar, kapanınca kaldırır. `QrCode.tsx`'e `sizeMm` prop'u (viewBox ile kayıpsız ölçek). `StationWorkPage`: QR istasyonunda "QR Üret" → modal önizleme (inline card yerine); altta **"Önceki QR Kodlar"** ızgarası (thumbnail + ID + tarih), tıklayınca yeniden yazdırma için aynı modal. `StationsPage` formuna `qr_generate` seçiliyken **Etiket Genişlik/Yükseklik (mm)** inputları (varsayılan 50×30). `ProductsPage` de `QrLabelModal`'e taşındı (eski `.trace-qr-label` kaldırıldı).
+  - **CSS/i18n:** `trace.css`'e `.trace-qr-print` (mm boyutlu), `.trace-qr-history` ızgarası, güncel `@media print` (yalnız etiket). i18n `trace.labelSize/labelWidth/labelHeight/qrHistory/noQrHistory/reprint` (tr/en).
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 43 precache). Not: çalışma ağacında önceki oturumlardan kalma commit'lenmemiş UI değişiklikleri (ErrorBoundary, index.css, App.tsx, LoginPage vb.) de vardı — hepsi birlikte push'landı.
 
 
 

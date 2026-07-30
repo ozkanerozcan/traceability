@@ -11,8 +11,9 @@ import {
   Activity,
   ClipboardEdit,
   ShieldCheck,
+  Cpu,
 } from 'lucide-react';
-import { Badge, Button, ConfirmDialog, Table, useToast } from '../../../core/components/common';
+import { Badge, Button, ConfirmDialog, EmptyState, Table, useToast } from '../../../core/components/common';
 
 
 import { plcService, type PlcProfile } from '../services/plc.service';
@@ -144,7 +145,16 @@ export default function PlcList() {
       {loading ? (
         <p className="text-muted">{t('common.loading')}</p>
       ) : plcs.length === 0 ? (
-        <p className="text-muted">{t('plc.noPlcs')}</p>
+        <EmptyState
+          icon={<Cpu size={32} />}
+          title={t('plc.noPlcs')}
+          description={t('common.emptyDescription')}
+          action={
+            <Button onClick={() => { setEditingPlc(null); setFormOpen(true); }}>
+              <Plus size={16} /> {t('plc.addPlc')}
+            </Button>
+          }
+        />
       ) : (
         <Table>
           <thead>

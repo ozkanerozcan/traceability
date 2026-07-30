@@ -26,7 +26,10 @@
     "disabled": "Devre Dışı",
     "error": "Hata",
     "success": "Başarılı",
-    "warning": "Uyarı"
+    "warning": "Uyarı",
+    "emptyTitle": "Kayıt Bulunamadı",
+    "emptyDescription": "Görüntülenecek veri bulunmuyor.",
+    "refresh": "Yenile"
   },
   "auth": {
     "login": "Giriş Yap",
@@ -186,6 +189,12 @@
     "scanBatch": "Parti QR kodunu tarayın",
     "generateQr": "QR Üret",
     "qrLabel": "QR Etiket",
+    "labelSize": "Etiket Boyutu",
+    "labelWidth": "Genişlik (mm)",
+    "labelHeight": "Yükseklik (mm)",
+    "qrHistory": "Önceki QR Kodlar",
+    "noQrHistory": "Henüz QR kodu üretilmedi",
+    "reprint": "Yeniden yazdır",
     "print": "Yazdır",
     "plc": "PLC",
     "plcTag": "PLC Tag",

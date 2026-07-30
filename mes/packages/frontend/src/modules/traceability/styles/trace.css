@@ -8,23 +8,92 @@
   align-items: start;
 }
 
-/* ─── QR etiket ─── */
-.trace-qr-label {
+/* ─── QR etiket önizleme (modal) ─── */
+.trace-qr-preview-wrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+
+/* Gerçek mm boyutunda etiket — ekran ve yazdırmada aynı oran */
+.trace-qr-print {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  justify-content: center;
+  gap: 1mm;
+  padding: 2mm;
   background: #fff;
-  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-color);
+  border-radius: 2mm;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-.trace-qr-text {
+.trace-qr-print-text {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: var(--font-size-lg);
+  font-size: 3.2mm;
   color: #000;
   letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-align: center;
+  word-break: break-all;
+}
+
+.trace-qr-preview-dim {
+  text-align: center;
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+/* ─── Önceki QR kodları ızgarası ─── */
+.trace-qr-history {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.trace-qr-history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.trace-qr-history-item:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.trace-qr-history-item svg {
+  width: 100%;
+  max-width: 80px;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.trace-qr-history-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  word-break: break-all;
+  text-align: center;
+}
+
+.trace-qr-history-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* Yazdırmada yalnızca etiket görünsün */
@@ -32,13 +101,16 @@
   body * {
     visibility: hidden;
   }
-  .trace-qr-label,
-  .trace-qr-label * {
+  .trace-qr-print,
+  .trace-qr-print * {
     visibility: visible;
   }
-  .trace-qr-label {
+  .trace-qr-print {
     position: absolute;
     inset: 0 auto auto 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
     box-shadow: none;
   }
 }

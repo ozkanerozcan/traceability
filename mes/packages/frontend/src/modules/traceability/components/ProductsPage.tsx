@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Printer } from 'lucide-react';
-import { Alert, Badge, Button, Modal, Select, Table, useToast } from '../../../core/components/common';
+import { Alert, Badge, Modal, Select, Table, useToast } from '../../../core/components/common';
 import { traceService, type Product, type QrLabel, type StationRecord } from '../services/trace.service';
-import QrCode from './QrCode';
+import QrLabelModal from './QrLabelModal';
 
 const STATUS_VARIANT: Record<Product['status'], 'info' | 'success' | 'danger'> = {
   in_progress: 'info',
@@ -160,18 +160,8 @@ export default function ProductsPage() {
         )}
       </Modal>
 
-      {/* ─── QR etiket ─── */}
-      <Modal open={qrLabel !== null} title={t('trace.qrLabel')} onClose={() => setQrLabel(null)}>
-        {qrLabel && (
-          <div className="trace-qr-label">
-            <QrCode svgPath={qrLabel.svgPath} size={qrLabel.size} scale={6} />
-            <div className="trace-qr-text">{qrLabel.productId}</div>
-            <Button variant="secondary" onClick={() => window.print()} className="mt-4">
-              <Printer size={16} /> {t('trace.print')}
-            </Button>
-          </div>
-        )}
-      </Modal>
+      {/* ─── QR etiket önizleme + yazdırma ─── */}
+      <QrLabelModal open={qrLabel !== null} label={qrLabel} onClose={() => setQrLabel(null)} />
     </div>
   );
 }

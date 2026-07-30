@@ -26,7 +26,10 @@
     "disabled": "Disabled",
     "error": "Error",
     "success": "Success",
-    "warning": "Warning"
+    "warning": "Warning",
+    "emptyTitle": "No Records Found",
+    "emptyDescription": "There is no data to display.",
+    "refresh": "Refresh"
   },
   "auth": {
     "login": "Sign In",
@@ -186,6 +189,12 @@
     "scanBatch": "Scan the batch QR code",
     "generateQr": "Generate QR",
     "qrLabel": "QR Label",
+    "labelSize": "Label Size",
+    "labelWidth": "Width (mm)",
+    "labelHeight": "Height (mm)",
+    "qrHistory": "Previous QR Codes",
+    "noQrHistory": "No QR codes generated yet",
+    "reprint": "Reprint",
     "print": "Print",
     "plc": "PLC",
     "plcTag": "PLC Tag",

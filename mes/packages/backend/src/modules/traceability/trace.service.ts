@@ -52,6 +52,8 @@ export interface StationConfig {
   groupSize?: number;
   componentKind?: 'material' | 'component';
   fields?: string[]; // plc_acquire için alan adları
+  labelWidth?: number;  // QR etiket genişliği (mm)
+  labelHeight?: number; // QR etiket yüksekliği (mm)
 }
 
 export function parseCapabilities(json: string): StationCapability[] {
@@ -408,6 +410,15 @@ export function acknowledgeAlarm(id: number, userId: number): void {
 }
 
 // ─── QR günlüğü ─────────────────────────────────────────────────────────────
+
+/** Son üretilen QR'lar (ürünler) — önizleme/yeniden yazdırma listesi için */
+export function listQrHistory(limit = 24): ProductRow[] {
+  const db = getDb();
+  const lim = Math.min(Math.max(limit, 1), 200);
+  return db
+    .prepare('SELECT * FROM trace_products ORDER BY id DESC LIMIT ?')
+    .all(lim) as ProductRow[];
+}
 
 export function logQrPrint(productId: string, qrContent: string, userId: number): void {
   const db = getDb();

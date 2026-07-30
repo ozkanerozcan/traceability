@@ -1,5 +1,6 @@
 import {
   createContext,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -7,6 +8,7 @@ import {
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
 } from 'react';
@@ -14,8 +16,12 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Info,
+  Inbox,
+  Search,
   X,
   XCircle,
 } from 'lucide-react';
@@ -60,7 +66,7 @@ export function Input({ label, error, id, ...rest }: InputProps) {
   );
 }
 
-/* ─── Select ─────────────────────────────────────────────────────────────── */
+/* ─── Select (Pop-up Picker Modal) ───────────────────────────────────────── */
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
@@ -68,8 +74,66 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   children: ReactNode;
 }
 
-export function Select({ label, error, id, children, ...rest }: SelectProps) {
-  const selectId = id ?? rest.name;
+interface SelectOptionItem {
+  value: string | number;
+  label: ReactNode;
+  disabled?: boolean;
+}
+
+export function Select({ label, error, id, children, value, onChange, disabled, className = '', ...rest }: SelectProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const selectId = id ?? rest.name ?? 'select-picker';
+
+  const options: SelectOptionItem[] = [];
+  const processChild = (child: ReactNode) => {
+    if (isValidElement<{ value?: string | number; children?: ReactNode; disabled?: boolean }>(child)) {
+      const props = child.props;
+      if (child.type === 'option') {
+        options.push({
+          value: props.value ?? '',
+          label: props.children ?? String(props.value ?? ''),
+          disabled: props.disabled,
+        });
+      } else if (props.children) {
+        const grandChildren = Array.isArray(props.children) ? props.children : [props.children];
+        (grandChildren as ReactNode[]).forEach(processChild);
+      }
+    }
+  };
+
+  const childrenArray = Array.isArray(children) ? children : [children];
+  childrenArray.forEach(processChild);
+
+  const selectedOption = options.find((opt) => String(opt.value) === String(value)) ?? options[0];
+
+  const handleSelectOption = (optValue: string | number) => {
+    if (disabled) return;
+    setPickerOpen(false);
+    setSearchTerm('');
+    if (onChange) {
+      const syntheticEvent = {
+        target: {
+          name: rest.name ?? '',
+          value: optValue,
+          id: selectId,
+        },
+        currentTarget: {
+          name: rest.name ?? '',
+          value: optValue,
+          id: selectId,
+        },
+      } as unknown as React.ChangeEvent<HTMLSelectElement>;
+      onChange(syntheticEvent);
+    }
+  };
+
+  const filteredOptions = options.filter((opt) => {
+    if (!searchTerm.trim()) return true;
+    const labelStr = typeof opt.label === 'string' ? opt.label : String(opt.value);
+    return labelStr.toLowerCase().includes(searchTerm.toLowerCase());
+  });
+
   return (
     <div className="form-group">
       {label && (
@@ -77,10 +141,80 @@ export function Select({ label, error, id, children, ...rest }: SelectProps) {
           {label}
         </label>
       )}
-      <select id={selectId} className="select" {...rest}>
+      
+      {/* Pop-up Tetikleyici Buton */}
+      <button
+        type="button"
+        id={selectId}
+        className={`select-picker-trigger ${className}`.trim()}
+        onClick={() => !disabled && setPickerOpen(true)}
+        disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={pickerOpen}
+      >
+        <span className="select-picker-label">
+          {selectedOption ? selectedOption.label : 'Seçiniz...'}
+        </span>
+        <ChevronDown size={18} className="select-picker-chevron" />
+      </button>
+
+      {/* Gizli native select (Form ref ve geriye dönük uyumluluk için) */}
+      <select id={`${selectId}-native`} style={{ display: 'none' }} value={value} onChange={onChange} disabled={disabled} {...rest}>
         {children}
       </select>
+
       {error && <span className="form-error">{error}</span>}
+
+      {/* Pop-up Picker Modal */}
+      <Modal
+        open={pickerOpen}
+        title={label ?? 'Seçim Yapın'}
+        onClose={() => {
+          setPickerOpen(false);
+          setSearchTerm('');
+        }}
+        modalStack
+      >
+        <div className="picker-popup-container">
+          {options.length > 5 && (
+            <div className="picker-search-wrapper">
+              <Search size={16} className="picker-search-icon" />
+              <input
+                type="text"
+                className="input picker-search-input"
+                placeholder="Seçenek ara..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="picker-options-list">
+            {filteredOptions.length === 0 ? (
+              <div className="text-muted" style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
+                Eşleşen seçenek bulunamadı.
+              </div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = String(opt.value) === String(value);
+                return (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    className={`picker-option-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => handleSelectOption(opt.value)}
+                    disabled={opt.disabled}
+                  >
+                    <span className="picker-option-label">{opt.label}</span>
+                    {isSelected && <Check size={18} className="picker-option-check" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -185,6 +319,7 @@ export function Modal({ open, title, onClose, children, footer, wide, modalStack
         aria-modal="true"
         aria-label={title}
       >
+        <div className="modal-handle-bar" />
         <div className="modal-header">
           <h3 className="modal-title">{title}</h3>
           <button className="btn-icon" onClick={onClose} aria-label={title}>
@@ -453,3 +588,66 @@ export function useToast(): ToastContextValue {
   }
   return ctx;
 }
+
+/* ─── EmptyState ─────────────────────────────────────────────────────────── */
+
+interface EmptyStateProps {
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  className?: string;
+}
+
+/** Boş listeler, arama sonuçları ve veri bulunamadı durumları için görsel bileşen. */
+export function EmptyState({
+  icon = <Inbox size={32} />,
+  title,
+  description,
+  action,
+  className = '',
+}: EmptyStateProps) {
+  return (
+    <div
+      className={`empty-state ${className}`.trim()}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: 'var(--space-8) var(--space-4)',
+        borderRadius: 'var(--radius-md)',
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border-color)',
+        margin: 'var(--space-4) 0',
+      }}
+    >
+      <div
+        style={{
+          width: 56,
+          height: 56,
+          borderRadius: '50%',
+          backgroundColor: 'rgba(253, 201, 84, 0.12)',
+          color: 'var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 'var(--space-3)',
+        }}
+      >
+        {icon}
+      </div>
+      <h4 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: 'var(--space-1)', color: 'var(--text-primary)' }}>
+        {title}
+      </h4>
+      {description && (
+        <p className="text-muted" style={{ fontSize: 'var(--font-size-sm)', maxWidth: 360, marginBottom: action ? 'var(--space-4)' : 0 }}>
+          {description}
+        </p>
+      )}
+      {action && <div>{action}</div>}
+    </div>
+  );
+}
+

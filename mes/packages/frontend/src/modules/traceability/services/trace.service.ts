@@ -25,6 +25,8 @@ export interface StationConfig {
   groupSize?: number;
   componentKind?: 'material' | 'component';
   fields?: string[];
+  labelWidth?: number;  // QR etiket genişliği (mm)
+  labelHeight?: number; // QR etiket yüksekliği (mm)
 }
 
 export interface Station {
@@ -116,6 +118,15 @@ export interface QrLabel {
   size: number;
 }
 
+export interface QrHistoryItem {
+  productId: string;
+  qrContent: string;
+  svgPath: string;
+  size: number;
+  status: 'in_progress' | 'completed' | 'rejected';
+  createdAt: string | null;
+}
+
 // ─── API ────────────────────────────────────────────────────────────────────
 
 export const traceService = {
@@ -156,6 +167,10 @@ export const traceService = {
   // QR etiket
   getQrLabel: (productId: string) =>
     api.get<QrLabel>(`/api/trace/qr/${encodeURIComponent(productId)}`),
+
+  // QR geçmişi (son üretilen QR'lar)
+  getQrHistory: (limit = 24) =>
+    api.get<{ items: QrHistoryItem[] }>(`/api/trace/qr-history?limit=${limit}`),
 
   // Parti numaraları
   listBatches: (kind?: string) =>
