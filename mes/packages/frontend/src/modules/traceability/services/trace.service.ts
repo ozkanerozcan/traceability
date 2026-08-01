@@ -30,6 +30,14 @@ export interface StationConfig {
   dataTagIds?: number[];  // ürüne yazılacak tag'ler
   triggerTagId?: number;  // trigger biti
   slotTagId?: number;     // slot/pozisyon tag'i
+  // Shell ID kaynağı (yok/'scan' = taranan ürün; 'plc' = PLC'den; 'trolley' = arabadan)
+  shellIdSource?: 'plc' | 'trolley';
+  shellIdTagId?: number;        // shellIdSource='plc': Shell ID okunacak tag
+  trolleyMatchMode?: 'row' | 'all'; // shellIdSource='trolley': satır bazlı / tüm ürünler
+  rowTagId?: number;            // trolleyMatchMode='row': satır numarası tag'i
+  rowSize?: number;             // satır başına ürün (varsayılan 4)
+  /** trolley_read: okutunca önceki içerik otomatik temizlensin mi (varsayılan true; yalnız ilk/yükleme istasyonu) */
+  clearOnRead?: boolean;
 }
 
 export interface Station {
@@ -171,7 +179,11 @@ export const traceService = {
   confirmTrolley: (stationKey: string, trolleyCode: string) =>
     api.post<{ ok: boolean; trolley: TrolleyContext }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/trolley`, { trolleyCode }),
   getStationContext: (stationKey: string) =>
-    api.get<{ trolley: TrolleyContext | null; productId: string | null }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/context`),
+    api.get<{ trolley: TrolleyContext | null; productId: string | null; lastCapture: LastCapture | null }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/context`),
+
+  // Araba kapasitesi (slot_count) — kalıcı
+  updateTrolley: (id: number, slotCount: number) =>
+    api.put<{ trolley: TrolleyContext }>(`/api/trace/trolleys/${id}`, { slotCount }),
 
   // QR etiket
   getQrLabel: (productId: string) =>
@@ -218,4 +230,12 @@ export interface TrolleyContext {
   slotCount: number;
   slots: { slot_number: number; product_id: string }[];
   nextFreeSlot: number | null;
+}
+
+/** PLC Data ile son yakalanan veri (trigger'dan) */
+export interface LastCapture {
+  productId: string;
+  data: Record<string, unknown>;
+  slot: number | null;
+  at: string;
 }

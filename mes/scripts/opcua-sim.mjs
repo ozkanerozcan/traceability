@@ -45,6 +45,7 @@ let temperature = 50;
 let pressure = 5;
 let statusText = 'RUNNING';
 let setpoint = 42.0;
+let rowNum = 0; // yazılabilir satır numarası (test için sabit)
 let tick = 0;
 
 setInterval(() => {
@@ -142,6 +143,24 @@ namespace.addVariable({
     set: (variant) => {
       setpoint = Number(variant.value);
       console.log(`[sim] ✍  Sim.Setpoint yazıldı → ${setpoint}`);
+      return StatusCodes.Good;
+    },
+  },
+});
+
+// Yazılabilir satır numarası — trolley satır-bazlı eşleştirme testleri için sabit
+namespace.addVariable({
+  componentOf: simFolder,
+  browseName: 'RowNum',
+  nodeId: 's=Sim.RowNum',
+  dataType: 'Int16',
+  accessLevel: readWrite,
+  userAccessLevel: readWrite,
+  value: {
+    get: () => new Variant({ dataType: DataType.Int16, value: rowNum }),
+    set: (variant) => {
+      rowNum = Number(variant.value);
+      console.log(`[sim] ✍  Sim.RowNum yazıldı → ${rowNum}`);
       return StatusCodes.Good;
     },
   },

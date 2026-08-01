@@ -57,6 +57,21 @@ export interface StationConfig {
   dataTagIds?: number[];  // ürüne yazılacak tag'ler
   triggerTagId?: number;  // trigger biti — true olunca dataTagIds ürüne yazılır
   slotTagId?: number;     // slot/pozisyon tag'i (trolley_read slot kaynağı)
+  // Shell ID kaynağı — trigger'da verinin hangi ürün(ler)e yazılacağı:
+  //   yok/'scan'    → taranan AKTİF ürün (barkod okutulur)
+  //   'plc'         → Shell ID doğrudan PLC tag'inden okunur (shellIdTagId)
+  //   'trolley'     → onaylı arabadaki ürünler (satır bazlı / tüm ürünler)
+  shellIdSource?: 'plc' | 'trolley';
+  shellIdTagId?: number;        // shellIdSource='plc': Shell ID okunacak tag
+  trolleyMatchMode?: 'row' | 'all'; // shellIdSource='trolley': eşleştirme yöntemi
+  rowTagId?: number;            // trolleyMatchMode='row': satır numarası tag'i
+  rowSize?: number;             // satır başına ürün sayısı (varsayılan 4)
+  /**
+   * trolley_read: araba okutulduğunda önceki içerik OTOMATİK temizlensin mi?
+   * Yalnızca İLK/yükleme istasyonunda true olmalı (varsayılan true) — sonraki
+   * istasyonlar yüklü arabayı okurken false'a çekilmeli (ürünler silinmez).
+   */
+  clearOnRead?: boolean;
 }
 
 export function parseCapabilities(json: string): StationCapability[] {
@@ -226,6 +241,14 @@ export function createTrolley(code: string, slotCount = 20): TrolleyRow {
     .prepare('INSERT INTO trace_trolleys (code, slot_count) VALUES (?, ?)')
     .run(code, slotCount);
   return db.prepare('SELECT * FROM trace_trolleys WHERE id = ?').get(Number(res.lastInsertRowid)) as TrolleyRow;
+}
+
+/** Arabanın kapasitesini (slot sayısı) günceller — kalıcıdır, sıfırlamada silinmez. */
+export function updateTrolleySlotCount(id: number, slotCount: number): TrolleyRow | undefined {
+  const db = getDb();
+  const count = Math.max(1, Math.min(100, Math.floor(slotCount)));
+  db.prepare('UPDATE trace_trolleys SET slot_count = ? WHERE id = ?').run(count, id);
+  return getTrolley(id);
 }
 
 export function getTrolleySlots(trolleyId: number): { slot_number: number; product_id: string }[] {
@@ -454,16 +477,25 @@ export function logQrPrint(productId: string, qrContent: string, userId: number)
  * ürünü AKTİF arabaya işler. Bellek içindedir — sunucu yeniden başlatılırsa
  * operatör arabayı/ürünü yeniden onaylar.
  */
+export interface LastCapture {
+  productId: string;
+  data: Record<string, unknown>;
+  slot: number | null;
+  at: string; // ISO zaman damgası
+}
+
 export interface StationContext {
   trolleyId: number | null;
   trolleyCode: string | null;
   productId: string | null;
+  /** PLC Data ile son yakalanan veri (trigger'dan) — UI'da gösterim için */
+  lastCapture: LastCapture | null;
 }
 
 const stationContexts = new Map<number, StationContext>();
 
 function emptyContext(): StationContext {
-  return { trolleyId: null, trolleyCode: null, productId: null };
+  return { trolleyId: null, trolleyCode: null, productId: null, lastCapture: null };
 }
 
 export function getStationContext(stationId: number): StationContext {
@@ -486,4 +518,10 @@ export function setActiveProduct(stationId: number, productId: string | null): v
 export function clearActiveProduct(stationId: number): void {
   const ctx = stationContexts.get(stationId);
   if (ctx) ctx.productId = null;
+}
+
+export function setLastCapture(stationId: number, capture: LastCapture): void {
+  const ctx = stationContexts.get(stationId) ?? emptyContext();
+  ctx.lastCapture = capture;
+  stationContexts.set(stationId, ctx);
 }

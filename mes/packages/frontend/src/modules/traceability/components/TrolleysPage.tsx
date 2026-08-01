@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
-import { Alert, Badge, Button, Card, Input, Modal, useToast } from '../../../core/components/common';
+import { Plus, Pencil } from 'lucide-react';
+import { Alert, Button, Card, Input, Modal, useToast } from '../../../core/components/common';
 import { traceService, type Trolley } from '../services/trace.service';
 
 export default function TrolleysPage() {
@@ -12,6 +12,8 @@ export default function TrolleysPage() {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [code, setCode] = useState('');
+  const [slotCount, setSlotCount] = useState<number>(20);
+  const [editing, setEditing] = useState<Trolley | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -30,14 +32,34 @@ export default function TrolleysPage() {
     void load();
   }, [load]);
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    setEditing(null);
+    setCode('');
+    setSlotCount(20);
+    setFormOpen(true);
+  };
+
+  const openEdit = (tr: Trolley) => {
+    setEditing(tr);
+    setCode(tr.code);
+    setSlotCount(tr.slotCount);
+    setFormOpen(true);
+  };
+
+  const handleSave = async () => {
     if (!code.trim()) return;
     setSaving(true);
     try {
-      await traceService.createTrolley(code.trim());
+      if (editing) {
+        // Kapasite (slot_count) güncelle — kalıcıdır, içerik sıfırlamada silinmez
+        await traceService.updateTrolley(editing.id, slotCount);
+      } else {
+        await traceService.createTrolley(code.trim(), slotCount);
+      }
       toast.success(t('common.success'));
       setFormOpen(false);
       setCode('');
+      setEditing(null);
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('common.error'));
@@ -50,7 +72,7 @@ export default function TrolleysPage() {
     <div>
       <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
         <h1 style={{ fontSize: 'var(--font-size-2xl)' }}>{t('trace.trolleys')}</h1>
-        <Button onClick={() => setFormOpen(true)}>
+        <Button onClick={openCreate}>
           <Plus size={16} /> {t('trace.addTrolley')}
         </Button>
       </div>
@@ -64,7 +86,15 @@ export default function TrolleysPage() {
       ) : (
         <div className="trace-trolley-grid">
           {trolleys.map((tr) => (
-            <Card key={tr.id} title={tr.code}>
+            <Card
+              key={tr.id}
+              title={tr.code}
+              actions={
+                <button className="btn-icon" title={t('common.edit')} onClick={() => openEdit(tr)}>
+                  <Pencil size={16} />
+                </button>
+              }
+            >
               <div className="trace-slot-grid">
                 {Array.from({ length: tr.slotCount }, (_, i) => {
                   const slot = tr.slots.find((s) => s.slot_number === i + 1);
@@ -89,16 +119,29 @@ export default function TrolleysPage() {
 
       <Modal
         open={formOpen}
-        title={t('trace.addTrolley')}
+        title={editing ? t('trace.editTrolley') : t('trace.addTrolley')}
         onClose={() => setFormOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>{t('common.cancel')}</Button>
-            <Button onClick={handleCreate} disabled={saving || !code.trim()}>{saving ? t('common.loading') : t('common.create')}</Button>
+            <Button onClick={handleSave} disabled={saving || !code.trim()}>{saving ? t('common.loading') : t('common.save')}</Button>
           </>
         }
       >
-        <Input label={t('trace.trolleyCode')} value={code} onChange={(e) => setCode(e.target.value)} placeholder="TR-001" autoFocus />
+        <Input label={t('trace.trolleyCode')} value={code} onChange={(e) => setCode(e.target.value)} placeholder="TR-001" autoFocus disabled={!!editing} />
+        <Input
+          label={t('trace.slotCount')}
+          type="number"
+          min={1}
+          max={100}
+          value={slotCount}
+          onChange={(e) => setSlotCount(Number(e.target.value))}
+        />
+        {editing && (
+          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
+            {t('trace.slotCountHint')}
+          </p>
+        )}
       </Modal>
     </div>
   );

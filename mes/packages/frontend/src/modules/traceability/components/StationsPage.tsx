@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, Play, Wrench } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Wrench, Settings, X } from 'lucide-react';
 import { Alert, Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Select, Table, useToast } from '../../../core/components/common';
-import { traceService, CAPABILITY_KEYS, type Station, type StationCapability } from '../services/trace.service';
+import { traceService, CAPABILITY_KEYS, type Station, type StationCapability, type StationConfig } from '../services/trace.service';
 import { plcService, tagService, type PlcProfile, type PlcTag } from '../../plc-gateway/services/plc.service';
 
 export default function StationsPage() {
@@ -159,6 +159,37 @@ export default function StationsPage() {
   );
 }
 
+// ─── Yardımcılar ─────────────────────────────────────────────────────────────
+
+/** İsimden URL-güvenli anahtar üretir (çalışma sayfası rotası için). */
+function slugify(s: string): string {
+  const map: Record<string, string> = {
+    'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u',
+    'Ç': 'c', 'Ğ': 'g', 'İ': 'i', 'I': 'i', 'Ö': 'o', 'Ş': 's', 'Ü': 'u',
+  };
+  return s
+    .split('')
+    .map((ch) => map[ch] ?? ch)
+    .join('')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/** İstasyon tipini yeteneklerden OTOMATİK türetir (formdan elle seçilmez). */
+function deriveType(caps: StationCapability[]): string {
+  if (caps.includes('qr_generate')) return 'qr';
+  if (caps.includes('trolley_read')) return 'trolley';
+  if (caps.includes('plc_acquire')) return 'plc';
+  if (caps.includes('wait_control')) return 'wait';
+  if (caps.includes('ok_nok')) return 'check';
+  if (caps.includes('batch_assign')) return 'assembly';
+  return 'generic';
+}
+
+/** Konfigürasyon gerektiren yetenekler */
+const CONFIGURABLE: StationCapability[] = ['qr_generate', 'trolley_read', 'plc_acquire', 'wait_control', 'batch_assign'];
+
 // ─── İstasyon Formu ─────────────────────────────────────────────────────────
 
 interface StationFormProps {
@@ -176,71 +207,46 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
   const toast = useToast();
   const isEdit = !!station;
 
-  const [key, setKey] = useState('');
   const [name, setName] = useState('');
-  const [type, setType] = useState('generic');
   const [caps, setCaps] = useState<StationCapability[]>([]);
-  const [plcId, setPlcId] = useState<number | ''>('');
-  const [triggerTagId, setTriggerTagId] = useState<number | ''>('');
-  const [slotTagId, setSlotTagId] = useState<number | ''>('');
-  const [dataTagIds, setDataTagIds] = useState<number[]>([]);
-  const [waitHours, setWaitHours] = useState<number>(24);
-  const [labelWidth, setLabelWidth] = useState<number>(50);
-  const [labelHeight, setLabelHeight] = useState<number>(30);
+  const [config, setConfig] = useState<StationConfig>({});
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [configuring, setConfiguring] = useState<StationCapability | null>(null);
 
   useEffect(() => {
     if (open) {
-      setKey(station?.key ?? '');
       setName(station?.name ?? '');
-      setType(station?.type ?? 'generic');
       setCaps(station?.capabilities ?? []);
-      setPlcId(station?.config.plcId ?? '');
-      setTriggerTagId(station?.config.triggerTagId ?? '');
-      setSlotTagId(station?.config.slotTagId ?? '');
-      // Geriye dönük: tekil plcTagId varsa dataTagIds'e taşı
-      setDataTagIds(
-        station?.config.dataTagIds ?? (station?.config.plcTagId ? [station.config.plcTagId] : [])
-      );
-      setWaitHours(station?.config.waitHours ?? 24);
-      setLabelWidth(station?.config.labelWidth ?? 50);
-      setLabelHeight(station?.config.labelHeight ?? 30);
+      setConfig(station?.config ?? {});
       setIsActive(station?.isActive ?? true);
       setError(null);
+      setConfiguring(null);
       if (station?.config.plcId) onPlcChange(station.config.plcId);
     }
   }, [open, station, onPlcChange]);
 
+  // Anahtar: düzenlemede mevcut, yeni kayıtta isimden otomatik üretilir
+  const key = isEdit ? station.key : slugify(name);
+  const type = deriveType(caps);
+
   const toggleCap = (c: StationCapability) => {
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   };
-
-  const toggleDataTag = (id: number) => {
-    setDataTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const removeCap = (c: StationCapability) => {
+    setCaps((prev) => prev.filter((x) => x !== c));
   };
 
   const handleSubmit = async () => {
-    if (!name.trim() || (!isEdit && !key.trim())) {
+    if (!name.trim() || !key) {
       setError(t('trace.fillRequired'));
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const config = {
-        ...(caps.includes('wait_control') ? { waitHours } : {}),
-        ...(caps.includes('qr_generate') ? { labelWidth, labelHeight } : {}),
-        ...(caps.includes('plc_acquire')
-          ? {
-              ...(plcId ? { plcId: Number(plcId) } : {}),
-              ...(triggerTagId ? { triggerTagId: Number(triggerTagId) } : {}),
-              ...(slotTagId ? { slotTagId: Number(slotTagId) } : {}),
-              dataTagIds,
-            }
-          : {}),
-      };
       if (isEdit) {
         await traceService.updateStation(station.id, {
           name: name.trim(),
@@ -250,7 +256,7 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
           config,
         });
       } else {
-        await traceService.createStation({ key: key.trim(), name: name.trim(), type, capabilities: caps, config });
+        await traceService.createStation({ key, name: name.trim(), type, capabilities: caps, config });
       }
       toast.success(t('common.success'));
       onSaved();
@@ -263,64 +269,198 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
   };
 
   return (
+    <>
+      <Modal
+        open={open}
+        title={isEdit ? t('trace.editStation') : t('trace.addStation')}
+        onClose={onClose}
+        footer={
+          <>
+            <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+            <Button onClick={handleSubmit} disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
+          </>
+        }
+      >
+        {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
+
+        <Input label={t('common.name')} value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder={t('trace.stationNamePlaceholder')} />
+
+        {/* Anahtar + Tip — otomatik (elle girilmez) */}
+        <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-4)' }}>
+          {t('trace.stationKey')}: <span style={{ fontFamily: 'var(--font-mono)' }}>{key || '—'}</span>
+          {'  •  '}
+          {t('trace.stationType')}: {t(`trace.type.${type}`)}
+          {'  '}
+          <span>({t('trace.autoDerived')})</span>
+        </div>
+
+        {/* Atanan yetenekler */}
+        <div className="form-group">
+          <span className="form-label">{t('trace.capabilities')}</span>
+          <div className="trace-cap-chips">
+            {caps.map((c) => (
+              <div key={c} className="trace-cap-chip">
+                <span className="trace-cap-chip-label">{t(`trace.cap.${c}`)}</span>
+                {CONFIGURABLE.includes(c) && (
+                  <button
+                    type="button"
+                    className="btn-icon trace-cap-chip-btn"
+                    title={t('trace.configureCapability')}
+                    onClick={() => setConfiguring(c)}
+                  >
+                    <Settings size={13} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-icon trace-cap-chip-btn"
+                  title={t('common.delete')}
+                  onClick={() => removeCap(c)}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+            <button type="button" className="trace-cap-add" onClick={() => setPickerOpen(true)}>
+              <Plus size={14} /> {t('trace.addCapability')}
+            </button>
+          </div>
+          {caps.length === 0 && (
+            <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noCapabilities')}</p>
+          )}
+        </div>
+
+        <Checkbox label={t('common.active')} checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+      </Modal>
+
+      {/* Yetenek seçimi (çoklu) — iç içe pop-up */}
+      <CapabilityPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        caps={caps}
+        onToggle={toggleCap}
+      />
+
+      {/* Yetenek konfigürasyonu — iç içe pop-up */}
+      <CapabilityConfig
+        cap={configuring}
+        onClose={() => setConfiguring(null)}
+        config={config}
+        onChange={setConfig}
+        plcs={plcs}
+        tags={tags}
+        onPlcChange={onPlcChange}
+      />
+    </>
+  );
+}
+
+// ─── Yetenek Seçici (çoklu) ─────────────────────────────────────────────────
+
+interface CapabilityPickerProps {
+  open: boolean;
+  onClose: () => void;
+  caps: StationCapability[];
+  onToggle: (c: StationCapability) => void;
+}
+
+function CapabilityPicker({ open, onClose, caps, onToggle }: CapabilityPickerProps) {
+  const { t } = useTranslation();
+  return (
     <Modal
       open={open}
-      title={isEdit ? t('trace.editStation') : t('trace.addStation')}
+      title={t('trace.selectCapabilities')}
       onClose={onClose}
-      wide
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button onClick={handleSubmit} disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
-        </>
-      }
+      modalStack
+      footer={<Button onClick={onClose}>{t('common.confirm')}</Button>}
     >
-      {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
-
-      <div className="flex gap-3">
-        <div style={{ flex: 1 }}>
-          <Input label={t('trace.stationKey')} value={key} onChange={(e) => setKey(e.target.value)} disabled={isEdit} placeholder="filling" required={!isEdit} />
-        </div>
-        <div style={{ flex: 2 }}>
-          <Input label={t('common.name')} value={name} onChange={(e) => setName(e.target.value)} required />
-        </div>
-        <div style={{ flex: 1 }}>
-          <Select label={t('trace.stationType')} value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="generic">{t('trace.type.generic')}</option>
-            <option value="qr">{t('trace.type.qr')}</option>
-            <option value="trolley">{t('trace.type.trolley')}</option>
-            <option value="plc">{t('trace.type.plc')}</option>
-            <option value="wait">{t('trace.type.wait')}</option>
-            <option value="check">{t('trace.type.check')}</option>
-            <option value="assembly">{t('trace.type.assembly')}</option>
-          </Select>
-        </div>
-      </div>
-
       <div className="form-group">
-        <span className="form-label">{t('trace.capabilities')}</span>
-        <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
+        <div className="flex gap-3" style={{ flexWrap: 'wrap', flexDirection: 'column', alignItems: 'flex-start' }}>
           {CAPABILITY_KEYS.map((c) => (
-            <Checkbox key={c} label={t(`trace.cap.${c}`)} checked={caps.includes(c)} onChange={() => toggleCap(c)} />
+            <Checkbox key={c} label={t(`trace.cap.${c}`)} checked={caps.includes(c)} onChange={() => onToggle(c)} />
           ))}
         </div>
       </div>
+    </Modal>
+  );
+}
 
-      {caps.includes('plc_acquire') && (
-        <div className="form-group">
-          <span className="form-label">{t('trace.plcDataConfig')}</span>
+// ─── Yetenek Konfigürasyonu ─────────────────────────────────────────────────
+
+interface CapabilityConfigProps {
+  cap: StationCapability | null;
+  onClose: () => void;
+  config: StationConfig;
+  onChange: (c: StationConfig) => void;
+  plcs: PlcProfile[];
+  tags: PlcTag[];
+  onPlcChange: (plcId: number) => void;
+}
+
+function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcChange }: CapabilityConfigProps) {
+  const { t } = useTranslation();
+  if (!cap) return null;
+
+  const set = <K extends keyof StationConfig>(key: K, value: StationConfig[K] | undefined) => {
+    onChange({ ...config, [key]: value });
+  };
+
+  const shellSrc: 'scan' | 'plc' | 'trolley' = config.shellIdSource ?? 'scan';
+
+  return (
+    <Modal
+      open={cap !== null}
+      title={t('trace.configureCapabilityTitle', { cap: t(`trace.cap.${cap}`) })}
+      onClose={onClose}
+      modalStack
+      footer={<Button onClick={onClose}>{t('common.save')}</Button>}
+    >
+      {/* QR Üretimi — etiket boyutu */}
+      {cap === 'qr_generate' && (
+        <div className="flex gap-3">
+          <div style={{ flex: 1 }}>
+            <Input label={t('trace.labelWidth')} type="number" min={10} max={300} value={config.labelWidth ?? 50} onChange={(e) => set('labelWidth', Number(e.target.value))} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Input label={t('trace.labelHeight')} type="number" min={10} max={300} value={config.labelHeight ?? 30} onChange={(e) => set('labelHeight', Number(e.target.value))} />
+          </div>
+        </div>
+      )}
+
+      {/* Araba Okuma — otomatik temizleme */}
+      {cap === 'trolley_read' && (
+        <Checkbox
+          label={t('trace.clearOnRead')}
+          checked={config.clearOnRead ?? true}
+          onChange={(e) => set('clearOnRead', e.target.checked)}
+        />
+      )}
+
+      {/* Bekleme Kontrolü — süre */}
+      {cap === 'wait_control' && (
+        <Input label={t('trace.waitHours')} type="number" min={1} value={config.waitHours ?? 24} onChange={(e) => set('waitHours', Number(e.target.value))} />
+      )}
+
+      {/* Parti Bağlama — bileşen tipi */}
+      {cap === 'batch_assign' && (
+        <Select label={t('trace.componentKind')} value={config.componentKind ?? 'material'} onChange={(e) => set('componentKind', e.target.value as 'material' | 'component')}>
+          <option value="material">{t('trace.kind.material')}</option>
+          <option value="component">{t('trace.kind.component')}</option>
+        </Select>
+      )}
+
+      {/* PLC Data — tam konfigürasyon */}
+      {cap === 'plc_acquire' && (
+        <>
           <div className="flex gap-3">
             <div style={{ flex: 1 }}>
               <Select
                 label={t('trace.plc')}
-                value={plcId}
+                value={config.plcId ?? ''}
                 onChange={(e) => {
-                  const v = e.target.value ? Number(e.target.value) : '';
-                  setPlcId(v);
-                  setTriggerTagId('');
-                  setSlotTagId('');
-                  setDataTagIds([]);
-                  if (v) onPlcChange(Number(v));
+                  const v = e.target.value ? Number(e.target.value) : undefined;
+                  onChange({ ...config, plcId: v, triggerTagId: undefined, slotTagId: undefined, shellIdTagId: undefined, rowTagId: undefined, dataTagIds: [] });
+                  if (v) onPlcChange(v);
                 }}
               >
                 <option value="">{t('trace.noPlc')}</option>
@@ -330,24 +470,70 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
               </Select>
             </div>
             <div style={{ flex: 1 }}>
-              <Select label={t('trace.triggerTag')} value={triggerTagId} onChange={(e) => setTriggerTagId(e.target.value ? Number(e.target.value) : '')} disabled={!plcId}>
+              <Select label={t('trace.triggerTag')} value={config.triggerTagId ?? ''} onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
                 <option value="">{t('trace.noTag')}</option>
-                {tags.map((tg) => (
+                {tags.filter((tg) => tg.acquisitionMode === 'subscribe').map((tg) => (
                   <option key={tg.id} value={tg.id}>{tg.name}</option>
                 ))}
               </Select>
             </div>
             <div style={{ flex: 1 }}>
-              <Select label={t('trace.slotTag')} value={slotTagId} onChange={(e) => setSlotTagId(e.target.value ? Number(e.target.value) : '')} disabled={!plcId}>
-                <option value="">{t('trace.noSlotTag')}</option>
-                {tags.map((tg) => (
-                  <option key={tg.id} value={tg.id}>{tg.name}</option>
-                ))}
+              <Select label={t('trace.shellIdSource')} value={shellSrc} onChange={(e) => set('shellIdSource', e.target.value === 'scan' ? undefined : (e.target.value as 'plc' | 'trolley'))} disabled={!config.plcId}>
+                <option value="scan">{t('trace.src.scan')}</option>
+                <option value="plc">{t('trace.src.plc')}</option>
+                <option value="trolley">{t('trace.src.trolley')}</option>
               </Select>
             </div>
           </div>
+          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-1)' }}>
+            {t('trace.triggerSubscribeHint')}
+          </p>
 
-          {plcId && (
+          {shellSrc === 'scan' && (
+            <Select label={t('trace.slotTag')} value={config.slotTagId ?? ''} onChange={(e) => set('slotTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
+              <option value="">{t('trace.noSlotTag')}</option>
+              {tags.map((tg) => (
+                <option key={tg.id} value={tg.id}>{tg.name}</option>
+              ))}
+            </Select>
+          )}
+
+          {shellSrc === 'plc' && (
+            <Select label={t('trace.shellIdTag')} value={config.shellIdTagId ?? ''} onChange={(e) => set('shellIdTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
+              <option value="">{t('trace.noTag')}</option>
+              {tags.map((tg) => (
+                <option key={tg.id} value={tg.id}>{tg.name}</option>
+              ))}
+            </Select>
+          )}
+
+          {shellSrc === 'trolley' && (
+            <div className="flex gap-3">
+              <div style={{ flex: 1 }}>
+                <Select label={t('trace.trolleyMatch')} value={config.trolleyMatchMode ?? 'all'} onChange={(e) => set('trolleyMatchMode', e.target.value as 'row' | 'all')}>
+                  <option value="all">{t('trace.match.all')}</option>
+                  <option value="row">{t('trace.match.row')}</option>
+                </Select>
+              </div>
+              {(config.trolleyMatchMode ?? 'all') === 'row' && (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <Select label={t('trace.rowTag')} value={config.rowTagId ?? ''} onChange={(e) => set('rowTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
+                      <option value="">{t('trace.noTag')}</option>
+                      {tags.map((tg) => (
+                        <option key={tg.id} value={tg.id}>{tg.name}</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <Input label={t('trace.rowSize')} type="number" min={1} max={20} value={config.rowSize ?? 4} onChange={(e) => set('rowSize', Number(e.target.value))} />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {config.plcId && (
             <div className="form-group" style={{ marginTop: 'var(--space-3)' }}>
               <span className="form-label">{t('trace.dataTags')}</span>
               {tags.length === 0 ? (
@@ -358,36 +544,22 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
                     <Checkbox
                       key={tg.id}
                       label={tg.name}
-                      checked={dataTagIds.includes(tg.id)}
-                      onChange={() => toggleDataTag(tg.id)}
+                      checked={(config.dataTagIds ?? []).includes(tg.id)}
+                      onChange={() =>
+                        set('dataTagIds',
+                          (config.dataTagIds ?? []).includes(tg.id)
+                            ? (config.dataTagIds ?? []).filter((x) => x !== tg.id)
+                            : [...(config.dataTagIds ?? []), tg.id]
+                        )
+                      }
                     />
                   ))}
                 </div>
               )}
             </div>
           )}
-        </div>
+        </>
       )}
-
-      {caps.includes('wait_control') && (
-        <Input label={t('trace.waitHours')} type="number" min={1} value={waitHours} onChange={(e) => setWaitHours(Number(e.target.value))} />
-      )}
-
-      {caps.includes('qr_generate') && (
-        <div className="form-group">
-          <span className="form-label">{t('trace.labelSize')}</span>
-          <div className="flex gap-3">
-            <div style={{ flex: 1 }}>
-              <Input label={t('trace.labelWidth')} type="number" min={10} max={300} value={labelWidth} onChange={(e) => setLabelWidth(Number(e.target.value))} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <Input label={t('trace.labelHeight')} type="number" min={10} max={300} value={labelHeight} onChange={(e) => setLabelHeight(Number(e.target.value))} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Checkbox label={t('common.active')} checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
     </Modal>
   );
 }

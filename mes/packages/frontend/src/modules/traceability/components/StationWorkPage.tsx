@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Printer, CheckCircle2, XCircle, RefreshCw, ScanLine } from 'lucide-react';
 import { Alert, Badge, Button, Card, Input, useToast } from '../../../core/components/common';
-import { traceService, type QrHistoryItem, type ScanInput, type Station, type TrolleyContext } from '../services/trace.service';
+import { traceService, type LastCapture, type QrHistoryItem, type ScanInput, type Station, type TrolleyContext } from '../services/trace.service';
 import { tagService, type PlcTag } from '../../plc-gateway/services/plc.service';
 import QrCode from './QrCode';
 import QrLabelModal, { type QrLabelData } from './QrLabelModal';
@@ -35,6 +35,7 @@ export default function StationWorkPage() {
   // plc_acquire
   const [plcProduct, setPlcProduct] = useState('');
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
+  const [lastCapture, setLastCapture] = useState<LastCapture | null>(null);
   const [plcTags, setPlcTags] = useState<PlcTag[]>([]);
   // batch_assign
   const [batchProduct, setBatchProduct] = useState('');
@@ -70,6 +71,10 @@ export default function StationWorkPage() {
   const caps = station?.capabilities ?? [];
   const has = (c: string) => caps.includes(c as never);
   const storageKey = station ? `trace_trolley_${station.key}` : '';
+  // PLC Read — Shell ID kaynağı (yoksa 'scan')
+  const shellSrc: 'scan' | 'plc' | 'trolley' = station?.config.shellIdSource ?? 'scan';
+  // Ürün taraması gösterilsin mi? (trolley kaynaklı PLC Read'de ürünler arabaya PLC ile dolar — manuel tarama yok)
+  const showProductScan = !(has('plc_acquire') && shellSrc === 'trolley');
 
   // ─── QR geçmişi ───
   const loadHistory = useCallback(async () => {
@@ -131,9 +136,10 @@ export default function StationWorkPage() {
     if (!station || (!has('trolley_read') && !has('plc_acquire'))) return;
     const id = setInterval(async () => {
       try {
-        const { trolley, productId } = await traceService.getStationContext(station.key);
+        const { trolley, productId, lastCapture: lc } = await traceService.getStationContext(station.key);
         if (trolley) setTrolleyCtx(trolley);
         setActiveProductId(productId);
+        setLastCapture(lc ?? null);
       } catch {
         // sessiz geç
       }
@@ -272,28 +278,52 @@ export default function StationWorkPage() {
                     <RefreshCw size={14} /> {t('trace.changeTrolley')}
                   </Button>
                 </div>
-                <Input
-                  label={t('trace.productId')}
-                  value={trolleyProduct}
-                  onChange={(e) => setTrolleyProduct(e.target.value)}
-                  placeholder={t('trace.scanProduct')}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && trolleyProduct.trim()) {
-                      void doScan({ productId: trolleyProduct.trim() });
-                      setTrolleyProduct('');
-                    }
-                  }}
-                />
-                <Button
-                  onClick={() => {
-                    void doScan({ productId: trolleyProduct.trim() });
-                    setTrolleyProduct('');
-                  }}
-                  disabled={busy || !trolleyProduct.trim()}
-                >
-                  <ScanLine size={16} /> {t('trace.processProduct')}
-                </Button>
+
+                {/* Shell (slot) yerleşim ızgarası — PLC verisi geldikçe canlı dolar */}
+                <div className="form-group">
+                  <span className="form-label">{t('trace.shellLayout')}</span>
+                  <div className="trace-slot-grid">
+                    {Array.from({ length: trolleyCtx.slotCount }, (_, i) => i + 1).map((n) => {
+                      const filled = trolleyCtx.slots.find((s) => s.slot_number === n);
+                      return (
+                        <div
+                          key={n}
+                          className={`trace-slot${filled ? ' filled' : ''}`}
+                          title={filled ? filled.product_id : t('trace.emptySlot')}
+                        >
+                          {n}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {showProductScan && (
+                  <>
+                    <Input
+                      label={t('trace.productId')}
+                      value={trolleyProduct}
+                      onChange={(e) => setTrolleyProduct(e.target.value)}
+                      placeholder={t('trace.scanProduct')}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && trolleyProduct.trim()) {
+                          void doScan({ productId: trolleyProduct.trim() });
+                          setTrolleyProduct('');
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={() => {
+                        void doScan({ productId: trolleyProduct.trim() });
+                        setTrolleyProduct('');
+                      }}
+                      disabled={busy || !trolleyProduct.trim()}
+                    >
+                      <ScanLine size={16} /> {t('trace.processProduct')}
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </Card>
@@ -303,9 +333,16 @@ export default function StationWorkPage() {
         {has('plc_acquire') && (
           <Card title={t('trace.cap.plc_acquire')}>
             <div className="text-muted mb-4" style={{ fontSize: 'var(--font-size-sm)' }}>
+              <div>{t('trace.shellIdSource')}: <strong>{t(`trace.src.${shellSrc}`)}</strong></div>
               <div>{t('trace.triggerTag')}: <strong>{tagName(station.config.triggerTagId)}</strong></div>
-              {station.config.slotTagId ? (
+              {shellSrc === 'plc' && station.config.shellIdTagId ? (
+                <div>{t('trace.shellIdTag')}: <strong>{tagName(station.config.shellIdTagId)}</strong></div>
+              ) : null}
+              {shellSrc === 'scan' && station.config.slotTagId ? (
                 <div>{t('trace.slotTag')}: <strong>{tagName(station.config.slotTagId)}</strong></div>
+              ) : null}
+              {shellSrc === 'trolley' ? (
+                <div>{t('trace.trolleyMatch')}: <strong>{t(`trace.match.${station.config.trolleyMatchMode ?? 'all'}`)}</strong></div>
               ) : null}
               <div>
                 {t('trace.dataTags')}: {(station.config.dataTagIds ?? []).length > 0
@@ -320,27 +357,50 @@ export default function StationWorkPage() {
               </Alert>
             )}
 
-            <Input
-              label={t('trace.productId')}
-              value={plcProduct}
-              onChange={(e) => setPlcProduct(e.target.value)}
-              placeholder={t('trace.scanProduct')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && plcProduct.trim()) {
-                  void doScan({ productId: plcProduct.trim() });
-                  setPlcProduct('');
-                }
-              }}
-            />
-            <Button
-              onClick={() => {
-                void doScan({ productId: plcProduct.trim() });
-                setPlcProduct('');
-              }}
-              disabled={busy || !plcProduct.trim()}
-            >
-              <ScanLine size={16} /> {t('trace.setActiveProduct')}
-            </Button>
+            {/* Son yakalanan veri (trigger'dan) */}
+            {lastCapture && (
+              <div className="trace-last-capture">
+                <div className="trace-last-capture-title">{t('trace.lastCapture')}</div>
+                <div className="trace-last-capture-body">
+                  <span className="trace-last-capture-product">{lastCapture.productId}</span>
+                  {lastCapture.slot !== null && (
+                    <span className="text-muted"> • {t('trace.nextSlot')}: {lastCapture.slot}</span>
+                  )}
+                  <span className="trace-last-capture-data">
+                    {Object.entries(lastCapture.data)
+                      .map(([k, v]) => `${tagName(Number(k.replace('tag_', '')))}: ${String(v)}`)
+                      .join('  •  ')}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Ürün taraması — yalnız 'scan' modunda + trolley_read'siz istasyonlarda */}
+            {shellSrc === 'scan' && !has('trolley_read') && (
+              <>
+                <Input
+                  label={t('trace.productId')}
+                  value={plcProduct}
+                  onChange={(e) => setPlcProduct(e.target.value)}
+                  placeholder={t('trace.scanProduct')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && plcProduct.trim()) {
+                      void doScan({ productId: plcProduct.trim() });
+                      setPlcProduct('');
+                    }
+                  }}
+                />
+                <Button
+                  onClick={() => {
+                    void doScan({ productId: plcProduct.trim() });
+                    setPlcProduct('');
+                  }}
+                  disabled={busy || !plcProduct.trim()}
+                >
+                  <ScanLine size={16} /> {t('trace.setActiveProduct')}
+                </Button>
+              </>
+            )}
           </Card>
         )}
 

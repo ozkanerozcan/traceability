@@ -93,6 +93,30 @@
 - [x] **StationsPage formu:** printing kaldırıldı; plc_acquire için PLC + trigger biti + slot tagi + **çoklu data tag checkbox** (`.trace-tag-picker`). i18n tr/en (`cap.trolley_read`, confirmTrolley, changeTrolley, triggerTag, slotTag, dataTags, plcDataConfig, waitingPlc, processProduct, setActiveProduct vb.).
 - [x] **Doğrulama:** API ile trolley_read uçtan uca (onay→context→tara→oto slot+ilerleme); **OPC UA sim ile trigger testi** `scripts/trace-trigger-test.mjs` **12/12** (sim PLC → trigger config → AKTİF ürün → Sim.Bool toggle → veri yazıldı + ilerleme). Tarayıcıda ayrı kartlar + sabit araba doğrulandı. Typecheck + build temiz (PWA 42). **Not:** opcua-sim değişkenleri **ns=1**'de (kod yorumundaki ns=2 yanlış).
 
+## What Works (İstasyon inceleme turu #3 — Araba Atama derinleştirme, 2026-08-01)
+- [x] **Araba okutunca OTOMATİK içerik temizleme:** `POST /stations/:key/trolley` onayında `releaseTrolley` ile önceki slot içeriği temizlenir (**slot_count KORUNUR**). Reset butonu YOK — ilk/yükleme istasyonu davranışı.
+- [x] **Canlı shell slot ızgarası:** trolley_read kartında onaylı arabanın slot yerleşim ızgarası (`.trace-slot-grid`/`.trace-slot`) — 3 sn context poll ile canlı dolar.
+- [x] **Kalıcı slot_count:** `PUT /api/trace/trolleys/:id` (`updateTrolleySlotCount`) + TrolleysPage kapasite düzenleme modalı.
+- [x] **PLC Data trigger subscribe-only + handshake:** StationsPage trigger dropdown yalnız subscribe tag'ler; `capturePlcData` kayıt sonrası trigger'ı **false** yazar (`writePlcValue`) → PLC okuma bitti anlar, yeniden trigger edebilir. **`lastCapture`** gösterimi (PLC Data kartı).
+- [x] **Doğrulama:** `scripts/trace-handshake-test.mjs` **17/17** (araba oto temizleme, QR→AKTİF, trigger→veri+slot, **Setpoint oto 0 handshake**, lastCapture). Tarayıcıda slot ızgarası. Typecheck + build temiz.
+
+## What Works (İstasyon inceleme turu #4 — PLC Read genellemesi, 2026-08-01)
+- [x] **PLC Read genel yapı (istasyondan bağımsız):** trigger biti (subscribe) + PLC'den okunacak çoklu değişken (dataTagIds) → trigger TRUE olunca okunan veriler Shell ID(ler)e kaydedilir. `StationConfig.shellIdSource` ile 3 senaryo:
+  - **'scan'** (varsayılan): taranan AKTİF ürün (barkod) — mevcut handshake davranışı korunur.
+  - **'plc':** Shell ID doğrudan PLC tag'inden okunur (`shellIdTagId`).
+  - **'trolley':** onaylı arabadaki Shell ID'ler — **satır-bazlı** (`trolleyMatchMode:'row'`, `rowTagId` satır no, `rowSize`=4) veya **tüm ürünler** (`'all'`).
+- [x] **`clearOnRead` bayrağı:** otomatik temizleme yalnız ilk/yükleme istasyonunda (varsayılan true) — sonraki istasyonlar yüklü arabayı okurken `false`'a çekilir (ürünler silinmez). StationsPage'de checkbox.
+- [x] **StationsPage PLC Read config UI:** PLC + trigger (subscribe-only) + Shell ID kaynağı dropdown + koşullu alanlar (scan→slotTagId, plc→shellIdTagId, trolley→match+rowTagId+rowSize) + çoklu data tag. StationWorkPage'de "Set Active Product" yalnız 'scan' modunda + config özeti kaynağa göre.
+- [x] **capturePlcData rework:** 3 kaynağa göre hedef ürün(ler) belirle → veri tag'lerini oku → yaz + ilerlet → handshake. Sim'e yazılabilir `Sim.RowNum` eklendi (satır testi için).
+- [x] **Doğrulama:** `scripts/trace-scenarios-test.mjs` **12/12** (4 ürün arabaya yüklendi → rowtest clearOnRead=false **temizlemedi** → row=0 trigger → **satırdaki 4 ürüne temp yazıldı** + handshake). Scan modu regresyonu `trace-handshake-test.mjs` **17/17**. Typecheck + build temiz (PWA 42).
+
+## What Works (İstasyon inceleme turu #5 — StationForm sadeleştirme, 2026-08-01)
+- [x] **Sade ana form:** StationForm artık yalnızca **İsim + atanan yetenek çipleri** içeriyor — karışık inline konfigürasyon kaldırıldı.
+- [x] **Anahtar otomatik:** `slugify(name)` ile isimden URL-güvenli anahtar üretilir (çalışma sayfası rotası için gerekli ama elle girilmez; düzenlemede mevcut key korunur). **Tip otomatik:** `deriveType(caps)` — yeteneklerden türetilir (qr/trolley/plc/wait/check/assembly), formdan manuel seçim kaldırıldı. (Kullanıcının "anahtar/tip gerekli mi?" sorularına yanıt: anahtar gerekli ama otomatik, tip gerekli değil/otomatik.)
+- [x] **Yetenek seçimi ayrı pop-up:** `CapabilityPicker` (çoklu checkbox, `modalStack` iç içe pop-up deseni).
+- [x] **Yetenek konfigürasyonu ayrı pop-up:** `CapabilityConfig` — her konfigürasyon-gerektiren yeteneğin (qr_generate/trolley_read/plc_acquire/wait_control/batch_assign) ayarları kendi iç içe pop-up'ında (`modalStack`). Çipteki dişli (⚙) ikonuyla açılır; tek `config` objesi state'inde düzenlenir.
+- [x] **Doğrulama (tarayıcı):** isim → anahtar oto (`test_dolum`), yetenek seçici pop-up (blur overlay), PLC Verisi çipi + tip oto "PLC", PLC Verisi Ayarları pop-up'ı (PLC + Trigger + Shell ID kaynağı + slot). Typecheck + build temiz (PWA 42). CSS `.trace-cap-chips/-chip/-add`.
+
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 

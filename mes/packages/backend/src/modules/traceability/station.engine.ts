@@ -23,6 +23,7 @@ import {
   parseConfig,
   setActiveProduct,
   clearActiveProduct,
+  setLastCapture,
   setProductStatus,
   type ProductRow,
   type StationRow,
@@ -226,58 +227,140 @@ export async function capturePlcData(stationId: number): Promise<void> {
   const config = parseConfig(station.config);
   if (!config.plcId || !config.triggerTagId || !config.dataTagIds?.length) return;
 
-  const ctx = getStationContext(stationId);
-  const productId = ctx.productId;
-  if (!productId) return; // aktif ürün yok — veri yazılacak hedef yok
+  const plcId = config.plcId;
+  const triggerTagId = config.triggerTagId;
 
-  const product = getProductByProductId(productId);
-  if (!product) {
-    clearActiveProduct(stationId);
+  // Handshake: işlem bitince trigger'ı false'a çek → PLC "okuma bitti" anlar ve
+  // yeni değerleri trigger edebilir. Watcher false bildiriminde otomatik re-arm olur.
+  const acknowledge = async () => {
+    try {
+      await writePlcValue(plcId, triggerTagId, false);
+    } catch {
+      // trigger yazılamazsa (salt okunur) yok say
+    }
+  };
+
+  const ctx = getStationContext(stationId);
+  const source = config.shellIdSource ?? 'scan';
+
+  // ─── Hedef ürün(ler)i Shell ID kaynağına göre belirle ───
+  const targets: ProductRow[] = [];
+
+  if (source === 'plc') {
+    // Senaryo 1: Shell ID doğrudan PLC tag'inden okunur
+    if (config.shellIdTagId) {
+      let shellId: string | null = null;
+      try {
+        const v = await readPlcValue(plcId, config.shellIdTagId);
+        shellId = v === null ? null : String(v).trim();
+      } catch {
+        shellId = null;
+      }
+      if (shellId) {
+        const p = getProductByProductId(shellId);
+        if (p) targets.push(p);
+      }
+    }
+  } else if (source === 'trolley') {
+    // Senaryo 2: Önce Trolley ID okunur → arabadaki Shell ID'ler bulunur
+    if (ctx.trolleyId) {
+      const slots = getTrolleySlots(ctx.trolleyId);
+      const rowSize = config.rowSize ?? 4;
+      if (config.trolleyMatchMode === 'row' && config.rowTagId) {
+        // Satır bazlı: PLC'den satır numarası oku → o satırdaki ürünler
+        let rowNum = 0;
+        try {
+          rowNum = Number(await readPlcValue(plcId, config.rowTagId)) || 0;
+        } catch {
+          rowNum = 0;
+        }
+        const start = rowNum * rowSize;
+        for (const s of slots) {
+          if (s.slot_number > start && s.slot_number <= start + rowSize) {
+            const p = getProductByProductId(s.product_id);
+            if (p) targets.push(p);
+          }
+        }
+      } else {
+        // Tüm ürünler: arabada o an bulunan her Shell ID'ye uygula
+        for (const s of slots) {
+          const p = getProductByProductId(s.product_id);
+          if (p) targets.push(p);
+        }
+      }
+    }
+  } else {
+    // 'scan': taranan AKTİF ürün
+    if (ctx.productId) {
+      const p = getProductByProductId(ctx.productId);
+      if (p) targets.push(p);
+    }
+  }
+
+  if (targets.length === 0) {
+    addAlarm({
+      stationId,
+      severity: 'warning',
+      message: `${station.name}: PLC trigger geldi ancak hedef ürün bulunamadı (kaynak: ${source})`,
+    });
+    await acknowledge();
     return;
   }
 
-  // Veri tag'lerini taze oku
+  // ─── Veri tag'lerini taze oku ───
   const data: Record<string, unknown> = {};
   for (const tagId of config.dataTagIds) {
     try {
-      data[`tag_${tagId}`] = await readPlcValue(config.plcId, tagId);
+      data[`tag_${tagId}`] = await readPlcValue(plcId, tagId);
     } catch {
       data[`tag_${tagId}`] = null;
     }
   }
 
-  // Slot (varsa) PLC'den oku
+  // Slot (yalnız 'scan' modunda, aktif arabaya pozisyon atamak için)
   let slot: number | null = null;
-  if (config.slotTagId) {
+  if (source === 'scan' && config.slotTagId) {
     try {
-      const v = await readPlcValue(config.plcId, config.slotTagId);
+      const v = await readPlcValue(plcId, config.slotTagId);
       slot = v === null ? null : Number(v) || null;
     } catch {
       slot = null;
     }
   }
 
-  // AKTİF araba + slot → ürünü o slot'a ata
-  if (ctx.trolleyId && slot !== null && slot >= 1) {
-    try {
-      assignTrolleySlot(ctx.trolleyId, slot, productId);
-    } catch {
-      // slot dolu olabilir — kaydı yine de yaz
+  // ─── Hedef ürün(ler)e veriyi yaz + ilerlet ───
+  for (const product of targets) {
+    // scan modunda slot varsa arabaya pozisyon ata
+    if (source === 'scan' && ctx.trolleyId && slot !== null && slot >= 1) {
+      try {
+        assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
+      } catch {
+        // slot dolu olabilir — kaydı yine de yaz
+      }
     }
+    addStationRecord({
+      productId: product.product_id,
+      stationId,
+      trolleyId: ctx.trolleyId ?? null,
+      status: 'done',
+      data: { ...data, ...(source === 'scan' ? { slot } : {}) },
+    });
+    tryAdvance(product, station);
   }
 
-  addStationRecord({
-    productId,
-    stationId,
-    trolleyId: ctx.trolleyId ?? null,
-    status: 'done',
-    data: { ...data, slot },
+  // Son yakalanan veriyi bağlama yaz (UI'da "verileri görebiliriz" için)
+  setLastCapture(stationId, {
+    productId: targets.length === 1 ? targets[0].product_id : `${targets.length} ürün`,
+    data,
+    slot,
+    at: new Date().toISOString(),
   });
 
-  tryAdvance(product, station);
-
-  // Ürün işlendi → sonraki ürün için yeni okutma gerekir
+  // Ürün işlendi → sonraki ürün için yeni okutma gerekir (scan modunda)
   clearActiveProduct(stationId);
+
+  // Handshake: okuma bitti → trigger'ı false'a çek
+  await acknowledge();
 }
 
 async function handleOkNok(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {

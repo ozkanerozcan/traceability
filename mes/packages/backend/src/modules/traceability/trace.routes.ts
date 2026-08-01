@@ -24,9 +24,11 @@ import {
   nextFreeSlot,
   parseCapabilities,
   parseConfig,
+  releaseTrolley,
   setActiveTrolley,
   setRouteSteps,
   updateStation,
+  updateTrolleySlotCount,
   type StationConfig,
 } from './trace.service.js';
 import { reloadPlcDataWatches } from './plc-data-watcher.js';
@@ -194,6 +196,24 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  // Araba kapasitesi (slot_count) güncelle — kalıcıdır, içerik sıfırlamada silinmez
+  app.put<{ Params: { id: string }; Body: { slotCount?: number } }>(
+    '/trolleys/:id',
+    { preHandler: [app.requireRole([...CONFIG_ROLES])] },
+    async (request, reply) => {
+      const slotCount = Number(request.body?.slotCount);
+      if (!Number.isFinite(slotCount) || slotCount < 1) {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Geçerli bir slotCount gereklidir (>=1)' });
+      }
+      const trolley = updateTrolleySlotCount(Number(request.params.id), slotCount);
+      if (!trolley) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Araba bulunamadı' });
+      }
+      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'update', entityType: 'trace_trolley', entityId: request.params.id, details: { slotCount }, ipAddress: request.ip });
+      return { trolley: { id: trolley.id, code: trolley.code, slotCount: trolley.slot_count, isActive: trolley.is_active === 1, slots: getTrolleySlots(trolley.id) } };
+    }
+  );
+
   // ─── İstasyon çalışma bağlamı (trolley_read: araba onayı) ───────────────
   // Operatör istasyon sayfasında arabayı onaylar → AKTİF araba olur (sabit).
   app.post<{ Params: { key: string }; Body: { trolleyCode?: string } }>(
@@ -210,6 +230,13 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       const trolley = getTrolleyByCode(code);
       if (!trolley) {
         return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: `Araba bulunamadı: ${code}` });
+      }
+      // Yalnızca İLK/yükleme istasyonunda (clearOnRead !== false) önceki içerik
+      // OTOMATİK temizlenir. Sonraki istasyonlar yüklü arabayı okur — temizlenmez.
+      // (slot_count her durumda kalıcı — dokunulmaz.) Sonra AKTİF araba yap.
+      const stConfig = parseConfig(station.config);
+      if (stConfig.clearOnRead !== false) {
+        releaseTrolley(trolley.id);
       }
       setActiveTrolley(station.id, trolley.id, trolley.code);
       writeAudit({ userId: request.user.sub, username: request.user.username, action: 'confirm', entityType: 'trace_trolley', entityId: trolley.code, details: { stationKey: station.key }, ipAddress: request.ip });
@@ -246,7 +273,7 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
         };
       }
     }
-    return { trolley, productId: ctx.productId };
+    return { trolley, productId: ctx.productId, lastCapture: ctx.lastCapture };
   });
 
   // ─── Ürünler ─────────────────────────────────────────────────────────────
