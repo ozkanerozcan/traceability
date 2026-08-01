@@ -10,6 +10,8 @@ import {
   getProductRecords,
   getRouteSteps,
   getStationByKey,
+  getStationContext,
+  getTrolleyByCode,
   getTrolleySlots,
   listAlarms,
   listBatches,
@@ -19,12 +21,15 @@ import {
   listStations,
   listTrolleys,
   logQrPrint,
+  nextFreeSlot,
   parseCapabilities,
   parseConfig,
+  setActiveTrolley,
   setRouteSteps,
   updateStation,
   type StationConfig,
 } from './trace.service.js';
+import { reloadPlcDataWatches } from './plc-data-watcher.js';
 import { qrToSvgPath } from './qr/qrcode.js';
 import { writeAudit } from '../../core/audit/audit.service.js';
 import { wsManager } from '../../core/websocket/ws.manager.js';
@@ -81,6 +86,7 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       }
       try {
         const station = createStation({ key, name, type, capabilities, config });
+        reloadPlcDataWatches();
         writeAudit({ userId: request.user.sub, username: request.user.username, action: 'create', entityType: 'trace_station', entityId: key, ipAddress: request.ip });
         return reply.code(201).send({ station: stationDto(station) });
       } catch (err) {
@@ -100,6 +106,7 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       if (!station) {
         return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
       }
+      reloadPlcDataWatches();
       writeAudit({ userId: request.user.sub, username: request.user.username, action: 'update', entityType: 'trace_station', entityId: request.params.id, ipAddress: request.ip });
       return { station: stationDto(station) };
     }
@@ -186,6 +193,61 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // ─── İstasyon çalışma bağlamı (trolley_read: araba onayı) ───────────────
+  // Operatör istasyon sayfasında arabayı onaylar → AKTİF araba olur (sabit).
+  app.post<{ Params: { key: string }; Body: { trolleyCode?: string } }>(
+    '/stations/:key/trolley',
+    async (request, reply) => {
+      const station = getStationByKey(request.params.key);
+      if (!station) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
+      }
+      const code = request.body?.trolleyCode?.trim();
+      if (!code) {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'trolleyCode gereklidir' });
+      }
+      const trolley = getTrolleyByCode(code);
+      if (!trolley) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: `Araba bulunamadı: ${code}` });
+      }
+      setActiveTrolley(station.id, trolley.id, trolley.code);
+      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'confirm', entityType: 'trace_trolley', entityId: trolley.code, details: { stationKey: station.key }, ipAddress: request.ip });
+      return {
+        ok: true,
+        trolley: {
+          id: trolley.id,
+          code: trolley.code,
+          slotCount: trolley.slot_count,
+          slots: getTrolleySlots(trolley.id),
+          nextFreeSlot: nextFreeSlot(trolley.id, trolley.slot_count),
+        },
+      };
+    }
+  );
+
+  // İstasyonun mevcut çalışma bağlamı (UI geri yükleme için)
+  app.get<{ Params: { key: string } }>('/stations/:key/context', async (request, reply) => {
+    const station = getStationByKey(request.params.key);
+    if (!station) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
+    }
+    const ctx = getStationContext(station.id);
+    let trolley = null;
+    if (ctx.trolleyId) {
+      const t = getTrolleyByCode(ctx.trolleyCode ?? '');
+      if (t) {
+        trolley = {
+          id: t.id,
+          code: t.code,
+          slotCount: t.slot_count,
+          slots: getTrolleySlots(t.id),
+          nextFreeSlot: nextFreeSlot(t.id, t.slot_count),
+        };
+      }
+    }
+    return { trolley, productId: ctx.productId };
+  });
 
   // ─── Ürünler ─────────────────────────────────────────────────────────────
   app.get<{ Querystring: { status?: string; limit?: string } }>('/products', async (request) => ({

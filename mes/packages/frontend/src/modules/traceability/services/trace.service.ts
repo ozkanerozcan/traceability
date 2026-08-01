@@ -4,13 +4,12 @@ import { api } from '../../../core/services/api';
 
 export type StationCapability =
   | 'qr_generate'
-  | 'trolley_assign'
+  | 'trolley_read'
   | 'batch_assign'
   | 'ok_nok'
   | 'plc_acquire'
   | 'wait_control'
   | 'alarm'
-  | 'printing'
   | 'operator_confirm'
   | 'route_validate';
 
@@ -27,6 +26,10 @@ export interface StationConfig {
   fields?: string[];
   labelWidth?: number;  // QR etiket genişliği (mm)
   labelHeight?: number; // QR etiket yüksekliği (mm)
+  // ─── PLC Data (plc_acquire) ───
+  dataTagIds?: number[];  // ürüne yazılacak tag'ler
+  triggerTagId?: number;  // trigger biti
+  slotTagId?: number;     // slot/pozisyon tag'i
 }
 
 export interface Station {
@@ -164,6 +167,12 @@ export const traceService = {
   // Tarama
   scan: (input: ScanInput) => api.post<ScanResult>('/api/trace/scan', input),
 
+  // İstasyon çalışma bağlamı (trolley_read: araba onayı)
+  confirmTrolley: (stationKey: string, trolleyCode: string) =>
+    api.post<{ ok: boolean; trolley: TrolleyContext }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/trolley`, { trolleyCode }),
+  getStationContext: (stationKey: string) =>
+    api.get<{ trolley: TrolleyContext | null; productId: string | null }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/context`),
+
   // QR etiket
   getQrLabel: (productId: string) =>
     api.get<QrLabel>(`/api/trace/qr/${encodeURIComponent(productId)}`),
@@ -192,13 +201,21 @@ export const traceService = {
 /** Capability etiketleri (i18n anahtarları) */
 export const CAPABILITY_KEYS: StationCapability[] = [
   'qr_generate',
-  'trolley_assign',
+  'trolley_read',
   'batch_assign',
   'ok_nok',
   'plc_acquire',
   'wait_control',
   'alarm',
-  'printing',
   'operator_confirm',
   'route_validate',
 ];
+
+/** trolley_read: onaylanan arabanın çalışma bağlamı */
+export interface TrolleyContext {
+  id: number;
+  code: string;
+  slotCount: number;
+  slots: { slot_number: number; product_id: string }[];
+  nextFreeSlot: number | null;
+}

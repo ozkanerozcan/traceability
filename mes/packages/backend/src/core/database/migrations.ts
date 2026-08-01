@@ -481,6 +481,34 @@ const migrations: Migration[] = [
       stationIds.forEach((st, i) => insertStep.run(st.id, i));
     },
   },
+  {
+    id: 4,
+    name: 'traceability_capability_rename',
+    up: (db) => {
+      // printing kaldırıldı (qr_generate yazdırmayı zaten içerir);
+      // trolley_assign → trolley_read (Araba Okuma) olarak yeniden adlandırıldı.
+      const rows = db
+        .prepare('SELECT id, capabilities FROM trace_stations')
+        .all() as { id: number; capabilities: string }[];
+      const update = db.prepare('UPDATE trace_stations SET capabilities = ? WHERE id = ?');
+      for (const row of rows) {
+        let caps: string[] = [];
+        try {
+          caps = JSON.parse(row.capabilities) as string[];
+        } catch {
+          caps = [];
+        }
+        const next = caps
+          .filter((c) => c !== 'printing')
+          .map((c) => (c === 'trolley_assign' ? 'trolley_read' : c));
+        // Olası yinelemeleri temizle (hem trolley_assign hem trolley_read varsa)
+        const dedup = [...new Set(next)];
+        if (JSON.stringify(dedup) !== row.capabilities) {
+          update.run(JSON.stringify(dedup), row.id);
+        }
+      }
+    },
+  },
 ];
 
 /**

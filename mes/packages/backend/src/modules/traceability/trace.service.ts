@@ -4,13 +4,12 @@ import { getDb } from '../../core/database/connection.js';
 
 export type StationCapability =
   | 'qr_generate'
-  | 'trolley_assign'
+  | 'trolley_read'
   | 'batch_assign'
   | 'ok_nok'
   | 'plc_acquire'
   | 'wait_control'
   | 'alarm'
-  | 'printing'
   | 'operator_confirm'
   | 'route_validate';
 
@@ -54,6 +53,10 @@ export interface StationConfig {
   fields?: string[]; // plc_acquire için alan adları
   labelWidth?: number;  // QR etiket genişliği (mm)
   labelHeight?: number; // QR etiket yüksekliği (mm)
+  // ─── PLC Data (plc_acquire) ───
+  dataTagIds?: number[];  // ürüne yazılacak tag'ler
+  triggerTagId?: number;  // trigger biti — true olunca dataTagIds ürüne yazılır
+  slotTagId?: number;     // slot/pozisyon tag'i (trolley_read slot kaynağı)
 }
 
 export function parseCapabilities(json: string): StationCapability[] {
@@ -201,6 +204,20 @@ export function listTrolleys(): TrolleyRow[] {
 export function getTrolleyByCode(code: string): TrolleyRow | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM trace_trolleys WHERE code = ?').get(code) as TrolleyRow | undefined;
+}
+
+export function getTrolley(id: number): TrolleyRow | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM trace_trolleys WHERE id = ?').get(id) as TrolleyRow | undefined;
+}
+
+/** Arabanın ilk boş slot numarası (1..slotCount); dolu ise null */
+export function nextFreeSlot(trolleyId: number, slotCount: number): number | null {
+  const used = new Set(getTrolleySlots(trolleyId).map((s) => s.slot_number));
+  for (let i = 1; i <= slotCount; i++) {
+    if (!used.has(i)) return i;
+  }
+  return null;
 }
 
 export function createTrolley(code: string, slotCount = 20): TrolleyRow {
@@ -427,4 +444,46 @@ export function logQrPrint(productId: string, qrContent: string, userId: number)
     qrContent,
     userId
   );
+}
+
+// ─── İstasyon çalışma bağlamı (runtime, bellek içi) ──────────────────────
+
+/**
+ * Operatörün istasyon sayfasında onayladığı araba (trolley) ve son okuttuğu
+ * ürün (product). PLC Data trigger'ı veriyi AKTİF ürüne yazar; trolley_read
+ * ürünü AKTİF arabaya işler. Bellek içindedir — sunucu yeniden başlatılırsa
+ * operatör arabayı/ürünü yeniden onaylar.
+ */
+export interface StationContext {
+  trolleyId: number | null;
+  trolleyCode: string | null;
+  productId: string | null;
+}
+
+const stationContexts = new Map<number, StationContext>();
+
+function emptyContext(): StationContext {
+  return { trolleyId: null, trolleyCode: null, productId: null };
+}
+
+export function getStationContext(stationId: number): StationContext {
+  return stationContexts.get(stationId) ?? emptyContext();
+}
+
+export function setActiveTrolley(stationId: number, trolleyId: number, trolleyCode: string): void {
+  const ctx = stationContexts.get(stationId) ?? emptyContext();
+  ctx.trolleyId = trolleyId;
+  ctx.trolleyCode = trolleyCode;
+  stationContexts.set(stationId, ctx);
+}
+
+export function setActiveProduct(stationId: number, productId: string | null): void {
+  const ctx = stationContexts.get(stationId) ?? emptyContext();
+  ctx.productId = productId;
+  stationContexts.set(stationId, ctx);
+}
+
+export function clearActiveProduct(stationId: number): void {
+  const ctx = stationContexts.get(stationId);
+  if (ctx) ctx.productId = null;
 }

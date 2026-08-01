@@ -181,9 +181,10 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
   const [type, setType] = useState('generic');
   const [caps, setCaps] = useState<StationCapability[]>([]);
   const [plcId, setPlcId] = useState<number | ''>('');
-  const [plcTagId, setPlcTagId] = useState<number | ''>('');
+  const [triggerTagId, setTriggerTagId] = useState<number | ''>('');
+  const [slotTagId, setSlotTagId] = useState<number | ''>('');
+  const [dataTagIds, setDataTagIds] = useState<number[]>([]);
   const [waitHours, setWaitHours] = useState<number>(24);
-  const [groupSize, setGroupSize] = useState<number>(4);
   const [labelWidth, setLabelWidth] = useState<number>(50);
   const [labelHeight, setLabelHeight] = useState<number>(30);
   const [isActive, setIsActive] = useState(true);
@@ -197,9 +198,13 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
       setType(station?.type ?? 'generic');
       setCaps(station?.capabilities ?? []);
       setPlcId(station?.config.plcId ?? '');
-      setPlcTagId(station?.config.plcTagId ?? '');
+      setTriggerTagId(station?.config.triggerTagId ?? '');
+      setSlotTagId(station?.config.slotTagId ?? '');
+      // Geriye dönük: tekil plcTagId varsa dataTagIds'e taşı
+      setDataTagIds(
+        station?.config.dataTagIds ?? (station?.config.plcTagId ? [station.config.plcTagId] : [])
+      );
       setWaitHours(station?.config.waitHours ?? 24);
-      setGroupSize(station?.config.groupSize ?? 4);
       setLabelWidth(station?.config.labelWidth ?? 50);
       setLabelHeight(station?.config.labelHeight ?? 30);
       setIsActive(station?.isActive ?? true);
@@ -212,6 +217,10 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
     setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   };
 
+  const toggleDataTag = (id: number) => {
+    setDataTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const handleSubmit = async () => {
     if (!name.trim() || (!isEdit && !key.trim())) {
       setError(t('trace.fillRequired'));
@@ -221,11 +230,16 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
     setError(null);
     try {
       const config = {
-        ...(plcId ? { plcId: Number(plcId) } : {}),
-        ...(plcTagId ? { plcTagId: Number(plcTagId) } : {}),
         ...(caps.includes('wait_control') ? { waitHours } : {}),
-        ...(caps.includes('plc_acquire') ? { groupSize } : {}),
         ...(caps.includes('qr_generate') ? { labelWidth, labelHeight } : {}),
+        ...(caps.includes('plc_acquire')
+          ? {
+              ...(plcId ? { plcId: Number(plcId) } : {}),
+              ...(triggerTagId ? { triggerTagId: Number(triggerTagId) } : {}),
+              ...(slotTagId ? { slotTagId: Number(slotTagId) } : {}),
+              dataTagIds,
+            }
+          : {}),
       };
       if (isEdit) {
         await traceService.updateStation(station.id, {
@@ -292,36 +306,64 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
         </div>
       </div>
 
-      {(caps.includes('plc_acquire') || caps.includes('trolley_assign')) && (
-        <div className="flex gap-3">
-          <div style={{ flex: 1 }}>
-            <Select
-              label={t('trace.plc')}
-              value={plcId}
-              onChange={(e) => {
-                const v = e.target.value ? Number(e.target.value) : '';
-                setPlcId(v);
-                setPlcTagId('');
-                if (v) onPlcChange(Number(v));
-              }}
-            >
-              <option value="">{t('trace.noPlc')}</option>
-              {plcs.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Select label={t('trace.plcTag')} value={plcTagId} onChange={(e) => setPlcTagId(e.target.value ? Number(e.target.value) : '')} disabled={!plcId}>
-              <option value="">{t('trace.noTag')}</option>
-              {tags.map((tg) => (
-                <option key={tg.id} value={tg.id}>{tg.name}</option>
-              ))}
-            </Select>
-          </div>
-          {caps.includes('plc_acquire') && (
+      {caps.includes('plc_acquire') && (
+        <div className="form-group">
+          <span className="form-label">{t('trace.plcDataConfig')}</span>
+          <div className="flex gap-3">
             <div style={{ flex: 1 }}>
-              <Input label={t('trace.groupSize')} type="number" min={1} value={groupSize} onChange={(e) => setGroupSize(Number(e.target.value))} />
+              <Select
+                label={t('trace.plc')}
+                value={plcId}
+                onChange={(e) => {
+                  const v = e.target.value ? Number(e.target.value) : '';
+                  setPlcId(v);
+                  setTriggerTagId('');
+                  setSlotTagId('');
+                  setDataTagIds([]);
+                  if (v) onPlcChange(Number(v));
+                }}
+              >
+                <option value="">{t('trace.noPlc')}</option>
+                {plcs.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Select label={t('trace.triggerTag')} value={triggerTagId} onChange={(e) => setTriggerTagId(e.target.value ? Number(e.target.value) : '')} disabled={!plcId}>
+                <option value="">{t('trace.noTag')}</option>
+                {tags.map((tg) => (
+                  <option key={tg.id} value={tg.id}>{tg.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Select label={t('trace.slotTag')} value={slotTagId} onChange={(e) => setSlotTagId(e.target.value ? Number(e.target.value) : '')} disabled={!plcId}>
+                <option value="">{t('trace.noSlotTag')}</option>
+                {tags.map((tg) => (
+                  <option key={tg.id} value={tg.id}>{tg.name}</option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          {plcId && (
+            <div className="form-group" style={{ marginTop: 'var(--space-3)' }}>
+              <span className="form-label">{t('trace.dataTags')}</span>
+              {tags.length === 0 ? (
+                <p className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>{t('trace.noTags')}</p>
+              ) : (
+                <div className="trace-tag-picker">
+                  {tags.map((tg) => (
+                    <Checkbox
+                      key={tg.id}
+                      label={tg.name}
+                      checked={dataTagIds.includes(tg.id)}
+                      onChange={() => toggleDataTag(tg.id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

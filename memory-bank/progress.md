@@ -85,6 +85,14 @@
 - [x] **ProductsPage** de `QrLabelModal`'e taşındı (eski `.trace-qr-label` CSS'i kaldırıldı). `trace.css`'e `.trace-qr-print` + `.trace-qr-history` + güncel `@media print`.
 - [x] i18n `trace.labelSize/labelWidth/labelHeight/qrHistory/noQrHistory/reprint` (tr/en). Typecheck + build temiz (PWA 43 precache).
 
+## What Works (İstasyon inceleme turu #2 — yetenek modeli yeniden tasarımı, 2026-08-01)
+- [x] **printing kaldırıldı** (qr_generate yazdırmayı içerir). **Migration 4 (`traceability_capability_rename`):** mevcut istasyonların capabilities JSON'unda trolley_assign→trolley_read, printing silindi (gerçek DB'de doğrulandı).
+- [x] **trolley_read (Araba Okuma):** istasyon sayfasında Trolley ID + Onayla → **sabit araba** (localStorage + backend aktif bağlam `setActiveTrolley`). Okutulan her ürün arabaya işlenir — trigger'sızsa **sonraki boş slota otomatik** (`nextFreeSlot`), trigger'lıysa plc_acquire slotTagId'sinden. `POST /stations/:key/trolley` (onay) + `GET /stations/:key/context`.
+- [x] **plc_acquire (PLC Data) trigger modeli:** config'de çoklu `dataTagIds` + `triggerTagId` + opsiyonel `slotTagId`. **Olay-bazlı izleyici** (`plc-data-watcher.ts`): trigger bitini `workerManager.onData` akışında izler, **false→true kenarında** `capturePlcData` → data tag'ler PLC'den okunup AKTİF ürüne yazılır, slot atanır, ilerler, aktif ürün temizlenir. Aktif bağlam bellek-içi (`getStationContext/setActiveProduct/clearActiveProduct`).
+- [x] **Her yetenek ayrı kartta** (StationWorkPage): QR/Araba Okuma/PLC Data/Parti/OK-NOK/Bekleme. PLC Data kartı trigger+data tag özetini ve "PLC verisi bekleniyor" durumunu gösterir (3sn bağlam tazeleme).
+- [x] **StationsPage formu:** printing kaldırıldı; plc_acquire için PLC + trigger biti + slot tagi + **çoklu data tag checkbox** (`.trace-tag-picker`). i18n tr/en (`cap.trolley_read`, confirmTrolley, changeTrolley, triggerTag, slotTag, dataTags, plcDataConfig, waitingPlc, processProduct, setActiveProduct vb.).
+- [x] **Doğrulama:** API ile trolley_read uçtan uca (onay→context→tara→oto slot+ilerleme); **OPC UA sim ile trigger testi** `scripts/trace-trigger-test.mjs` **12/12** (sim PLC → trigger config → AKTİF ürün → Sim.Bool toggle → veri yazıldı + ilerleme). Tarayıcıda ayrı kartlar + sabit araba doğrulandı. Typecheck + build temiz (PWA 42). **Not:** opcua-sim değişkenleri **ns=1**'de (kod yorumundaki ns=2 yanlış).
+
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 
