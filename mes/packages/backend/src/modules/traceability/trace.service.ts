@@ -5,6 +5,7 @@ import { getDb } from '../../core/database/connection.js';
 export type StationCapability =
   | 'qr_generate'
   | 'trolley_read'
+  | 'trolley_assign'
   | 'batch_assign'
   | 'ok_nok'
   | 'plc_acquire'
@@ -62,9 +63,11 @@ export interface StationConfig {
   //   'trolley'     → onaylı arabadaki ürünler (satır bazlı / tüm ürünler)
   shellIdSource?: 'plc' | 'trolley';
   shellIdTagId?: number;        // shellIdSource='plc': Shell ID okunacak tag
+  trolleyIdTagId?: number;      // shellIdSource='trolley': Trolley ID okunacak tag
   trolleyMatchMode?: 'row' | 'all'; // shellIdSource='trolley': eşleştirme yöntemi
   rowTagId?: number;            // trolleyMatchMode='row': satır numarası tag'i
   rowSize?: number;             // satır başına ürün sayısı (varsayılan 4)
+  slotTagId?: number;           // PLC'den okunan trolley slot numarası tag'i
   /**
    * trolley_read: araba okutulduğunda önceki içerik OTOMATİK temizlensin mi?
    * Yalnızca İLK/yükleme istasyonunda true olmalı (varsayılan true) — sonraki
@@ -250,6 +253,29 @@ export function updateTrolleySlotCount(id: number, slotCount: number): TrolleyRo
   return getTrolley(id);
 }
 
+export function deleteTrolley(id: number): boolean {
+  const db = getDb();
+  const trolley = getTrolley(id);
+  if (!trolley) return false;
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM trace_trolley_slots WHERE trolley_id = ?').run(id);
+    db.prepare('DELETE FROM trace_alarms WHERE trolley_id = ?').run(id);
+    const res = db.prepare('DELETE FROM trace_trolleys WHERE id = ?').run(id);
+
+    for (const [, ctx] of stationContexts.entries()) {
+      if (ctx.trolleyId === id) {
+        ctx.trolleyId = null;
+        ctx.trolleyCode = null;
+      }
+    }
+
+    return res.changes > 0;
+  });
+
+  return transaction();
+}
+
 export function getTrolleySlots(trolleyId: number): { slot_number: number; product_id: string }[] {
   const db = getDb();
   return db
@@ -272,6 +298,57 @@ export function releaseTrolley(trolleyId: number): void {
   db.prepare(
     "UPDATE trace_trolley_slots SET released_at = datetime('now') WHERE trolley_id = ? AND released_at IS NULL"
   ).run(trolleyId);
+}
+
+export interface TrolleyProductItem {
+  slotNumber: number;
+  productId: string;
+  status: string;
+  stepIndex: number;
+  records: {
+    stationName: string;
+    status: string | null;
+    data: Record<string, unknown> | null;
+    createdAt: string;
+  }[];
+}
+
+export function getTrolleyProductItems(trolleyId: number): TrolleyProductItem[] {
+  const db = getDb();
+  const slots = getTrolleySlots(trolleyId);
+  const result: TrolleyProductItem[] = [];
+
+  for (const s of slots) {
+    const product = db.prepare('SELECT * FROM trace_products WHERE product_id = ?').get(s.product_id) as ProductRow | undefined;
+    if (!product) continue;
+
+    const rawRecords = db
+      .prepare(
+        `SELECT r.*, s.name as station_name
+         FROM trace_station_records r
+         LEFT JOIN trace_stations s ON r.station_id = s.id
+         WHERE r.product_id = ?
+         ORDER BY r.id DESC`
+      )
+      .all(s.product_id) as { status: string | null; data?: string; created_at: string; station_name: string }[];
+
+    const records = rawRecords.map((r) => ({
+      stationName: r.station_name ?? '—',
+      status: r.status,
+      data: r.data ? (JSON.parse(r.data) as Record<string, unknown>) : null,
+      createdAt: r.created_at,
+    }));
+
+    result.push({
+      slotNumber: s.slot_number,
+      productId: s.product_id,
+      status: product.status,
+      stepIndex: product.current_step_index,
+      records,
+    });
+  }
+
+  return result;
 }
 
 // ─── Ürünler ────────────────────────────────────────────────────────────────
@@ -335,6 +412,22 @@ export function setProductStatus(productId: string, status: 'in_progress' | 'com
   db.prepare(
     "UPDATE trace_products SET status = ?, updated_at = datetime('now') WHERE product_id = ?"
   ).run(status, productId);
+}
+
+export function deleteProduct(id: number): boolean {
+  const db = getDb();
+  const product = getProduct(id);
+  if (!product) return false;
+
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM trace_trolley_slots WHERE product_id = ?').run(product.product_id);
+    db.prepare('DELETE FROM trace_station_records WHERE product_id = ?').run(product.product_id);
+    db.prepare('DELETE FROM trace_alarms WHERE product_id = ?').run(product.product_id);
+    const res = db.prepare('DELETE FROM trace_products WHERE id = ?').run(id);
+    return res.changes > 0;
+  });
+
+  return transaction();
 }
 
 // ─── İstasyon kayıtları ─────────────────────────────────────────────────────
@@ -506,6 +599,14 @@ export function setActiveTrolley(stationId: number, trolleyId: number, trolleyCo
   ctx.trolleyId = trolleyId;
   ctx.trolleyCode = trolleyCode;
   stationContexts.set(stationId, ctx);
+}
+
+export function clearActiveTrolley(stationId: number): void {
+  const ctx = stationContexts.get(stationId);
+  if (ctx) {
+    ctx.trolleyId = null;
+    ctx.trolleyCode = null;
+  }
 }
 
 export function setActiveProduct(stationId: number, productId: string | null): void {

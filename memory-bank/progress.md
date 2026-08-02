@@ -126,10 +126,22 @@
 - [x] **Trigger bit BOOL filtresi:** Sadece `subscribe + BOOL` tag'ler listeleniyor (önceki: sadece subscribe).
 - [x] **Layout alt alta:** PLC, Trigger Bit, Shell ID Source yan yana değil, alt alta — daha ferah arayüz.
 - [x] **Select boş değer placeholder:** Seçim yapılmadığında ilk seçeneğe düşmek yerine "Seçiniz..." gösteriliyor.
-- [x] **Dinamik z-index:** Modal stacking `modalCloseStack.length` bazlı — her iç içe modal bir basamak yüksekte açılır.
-- [x] **i18n:** `noPlcAvailable`, `selectPlc`, `noBoolTag`, `noTagsSelected`, `nTagsSelected`, `selectTags`, `searchTags`, `noMatchingTags`, `dataTagsHint` (tr/en).
-- [x] **Değişen dosyalar:** `core/components/common/index.tsx` (Modal + Select), `modules/traceability/components/TagMultiSelect.tsx` (yeni), `StationsPage.tsx`, `StationWorkPage.tsx`, `trace.service.ts` (frontend + backend), `station.engine.ts`, `tr.json`, `en.json`.
-- [x] **Doğrulama:** Typecheck + backend/frontend build temiz (PWA 42 precache).
+- [x] **Modal z-index & yığın yönetimi (`globalModalStack`):** Her `Modal` bileşenine benzersiz `Symbol` atandı ve global yığında sıra numarasına (`depth`) göre dinamik z-index verilerek iç içe pop-up re-render sorunları tam çözüldü (#7).
+- [x] **Shell ID kaynağı sadeleştirme:** `Taranan` (`scan`) seçeneği kaldırıldı; etiketler `PLC - Shell ID` ve `PLC - Trolley ID` olarak güncellendi (#8).
+- [x] **Trolley 4x5 ızgara düzeni & Trolley ID Tag:** `.trace-slot-grid` CSS `repeat(4, 1fr)` (4 sütun x 5 satır = 20 slot) yapıldı; `PLC - Trolley ID` seçeneğine `trolleyIdTagId` tag seçimi eklendi (#9).
+- [x] **Genel Ayarlar taşınması:** Araba Kapasitesi (`trolley_capacity`, varsayılan 20) ve Satır Başına Ürün (`row_size`, varsayılan 4) `Ayarlar` (`SettingsPage.tsx`) sayfasına taşındı, pop-up'lardaki gereksiz girdiler temizlendi (#9).
+- [x] **Araba Değiştir sıfırlama mekanizması:** `DELETE /api/trace/stations/:key/trolley` endpoint'i ve `clearActiveTrolley` fonksiyonu ile backend aktif araba hafızası sıfırlandı; 3sn polling çakışması çözüldü (#10).
+- [x] **Araba Okuma Kartı Sadeleştirmesi:** Araba Okuma (`trolley_read`) kartından gereksiz `Ürün ID` tarama alanı kaldırıldı; kart yalnızca araba onayı ve canlı 4x5 slot ızgarasına odaklandı (#11).
+- [x] **1-Tabanlı Satır Numarası Eşleştirmesi:** PLC `rowTagId` satır eşleştirmesi 1-tabanlı (`1. satır = 1..4 slotlar`, `2. satır = 5..8 slotlar`) yapıldı (#12).
+- [x] **Tag Silme FOREIGN KEY Düzeltmesi:** Migration 5 (`recipe_tags_cascade_delete`) ile `recipe_tags` tablosunda `tag_id` sütununa `ON DELETE CASCADE` eklendi; `deleteTag` ve `deletePlc` transaction ile korundu (#13).
+- [x] **Tag Formu Dinamik Etiketleme:** `TagForm.tsx` formunda `pollingIntervalMs` etiketi `acquisitionMode` seçimine göre dinamikleştirildi (`Poll` ➔ `Polling (ms)`, `Subscribe` ➔ `Örnekleme Sıklığı (ms)`) (#14).
+- [x] **OPC UA Browse String Veri Tipi Algılama:** `readDataTypeAttribute` 4 aşamalı veri tipi algılama ile güncellendi; Siemens S7 dahil tüm `STRING`/`WString` tag'ler otomatik algılanıyor (#15).
+- [x] **TagMultiSelect Sayaç Eşitlemesi:** `TagMultiSelect.tsx` bileşeninde `validSelectedIds` süzgeci ile mükerrer ve silinmiş tag ID'leri süzülerek sayaç ve buton sayıları kart sayısı ile eşitlendi (#15).
+- [x] **Ürün Silme & Yönetimi:** Ürünler sayfasında (`ProductsPage.tsx`) ürün silme mekanizması kuruldu; `DELETE /api/trace/products/:id` endpoint'i ile ürün silindiğinde ilgili araba slotları, istasyon geçmiş kayıtları ve alarmlar transaction seviyesinde güvenle temizleniyor. Ortak `ConfirmDialog` diyaloğu entegre edildi.
+- [x] **Araba Silme & Yönetimi:** Arabalar sayfasında (`TrolleysPage.tsx`) araba silme mekanizması kuruldu; `DELETE /api/trace/trolleys/:id` endpoint'i ile araba silindiğinde ilgili slot kayıtları, alarmlar ve aktif istasyon hafızaları temizleniyor. Ortak `ConfirmDialog` diyaloğu entegre edildi.
+- [x] **Hızlı Ürün Ekleme & QR Yazdırma:** Ürünler sayfasına (`ProductsPage.tsx`) **"+ Ürün Ekle"** butonu eklendi. QR Üretim İstasyonu ile birebir aynı motor (`createNewProduct`) kullanılarak ürün üretilip anında gerçek mm boyutlu `QrLabelModal` yazdırma pop-up'ı otomatik açılıyor.
+- [x] **Çeviri ve Geçmiş PLC Verisi Düzeltmeleri:** `tr.json` ve `en.json` içine eksik `activeTrolley`, `plcDataTitle`, `stationHistoryTitle` ve `timestamp` çeviri anahtarları eklendi. Backend `getTrolleyProductItems` servisinde veritabanı `data` sütununun okunması ve slot detay pop-up'ında geçmiş tork / PLC verilerinin eksiksiz görüntülenmesi sağlandı.
+- [x] **Veritabanı Mimari Dokümantasyonu:** Veritabanının 23 tablosu ve aralarındaki ilişkiler Mermaid ER Diyagramı ile `database_schema_documentation.md` dosyasında tam dokümante edildi. Shell ID bazlı sorgulama rehberi hazırlandı.
 
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.

@@ -11,6 +11,8 @@ export default function SettingsPage() {
   const toast = useToast();
   const [companyName, setCompanyName] = useState('');
   const [poweredByVisible, setPoweredByVisible] = useState(true);
+  const [trolleyCapacity, setTrolleyCapacity] = useState(20);
+  const [rowSize, setRowSize] = useState(4);
   const [modules, setModules] = useState<ModuleEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,8 @@ export default function SettingsPage() {
       const map = new Map(settings.map((s) => [s.key, s.value]));
       setCompanyName(map.get('company_name') ?? 'OE');
       setPoweredByVisible((map.get('powered_by_visible') ?? 'true') === 'true');
+      setTrolleyCapacity(Number(map.get('trolley_capacity')) || 20);
+      setRowSize(Number(map.get('row_size')) || 4);
       setModules(mods);
       setError(null);
     } catch (err) {
@@ -45,6 +49,8 @@ export default function SettingsPage() {
       await settingsService.update({
         company_name: companyName.trim() || 'OE',
         powered_by_visible: String(poweredByVisible),
+        trolley_capacity: String(trolleyCapacity),
+        row_size: String(rowSize),
       });
       toast.success(t('common.success'));
     } catch (err) {
@@ -82,7 +88,7 @@ export default function SettingsPage() {
       {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
 
       <div className="settings-grid">
-        {/* ─── Branding ─── */}
+        {/* ─── Marka ─── */}
         <Card title={t('settings.branding')}>
           <Input
             label={t('settings.companyName')}
@@ -93,6 +99,29 @@ export default function SettingsPage() {
             label={t('settings.showPoweredBy')}
             checked={poweredByVisible}
             onChange={(e) => setPoweredByVisible(e.target.checked)}
+          />
+          <Button onClick={handleSaveBranding} disabled={saving}>
+            <Save size={16} /> {saving ? t('common.loading') : t('common.save')}
+          </Button>
+        </Card>
+
+        {/* ─── Üretim & İzlenebilirlik Genel Ayarları ─── */}
+        <Card title={t('settings.production')}>
+          <Input
+            label={t('settings.trolleyCapacity')}
+            type="number"
+            min={1}
+            max={100}
+            value={trolleyCapacity}
+            onChange={(e) => setTrolleyCapacity(Number(e.target.value))}
+          />
+          <Input
+            label={t('settings.rowSize')}
+            type="number"
+            min={1}
+            max={20}
+            value={rowSize}
+            onChange={(e) => setRowSize(Number(e.target.value))}
           />
           <Button onClick={handleSaveBranding} disabled={saving}>
             <Save size={16} /> {saving ? t('common.loading') : t('common.save')}

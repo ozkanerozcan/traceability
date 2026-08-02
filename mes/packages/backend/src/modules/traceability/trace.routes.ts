@@ -1,17 +1,24 @@
 import type { FastifyInstance } from 'fastify';
-import { processScan, StationError, type ScanInput } from './station.engine.js';
+import { createNewProduct, processScan, StationError, type ScanInput } from './station.engine.js';
+import { getSetting } from '../system-settings/settings.service.js';
 import {
   acknowledgeAlarm,
+  createProduct,
   createRoute,
   createStation,
   createTrolley,
+  deleteProduct,
   deleteStation,
+  deleteTrolley,
+  getProduct,
   getProductByProductId,
   getProductRecords,
   getRouteSteps,
   getStationByKey,
   getStationContext,
+  getTrolley,
   getTrolleyByCode,
+  getTrolleyProductItems,
   getTrolleySlots,
   listAlarms,
   listBatches,
@@ -26,6 +33,7 @@ import {
   parseConfig,
   releaseTrolley,
   setActiveTrolley,
+  clearActiveTrolley,
   setRouteSteps,
   updateStation,
   updateTrolleySlotCount,
@@ -184,7 +192,8 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Araba kodu gereklidir' });
       }
       try {
-        const trolley = createTrolley(code, slotCount ?? 20);
+        const defaultCap = Number(getSetting('trolley_capacity')) || 20;
+        const trolley = createTrolley(code, slotCount ?? defaultCap);
         writeAudit({ userId: request.user.sub, username: request.user.username, action: 'create', entityType: 'trace_trolley', entityId: code, ipAddress: request.ip });
         return reply.code(201).send({ trolley });
       } catch (err) {
@@ -211,6 +220,31 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       }
       writeAudit({ userId: request.user.sub, username: request.user.username, action: 'update', entityType: 'trace_trolley', entityId: request.params.id, details: { slotCount }, ipAddress: request.ip });
       return { trolley: { id: trolley.id, code: trolley.code, slotCount: trolley.slot_count, isActive: trolley.is_active === 1, slots: getTrolleySlots(trolley.id) } };
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/trolleys/:id',
+    { preHandler: [app.requireRole([...CONFIG_ROLES])] },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      const trolley = getTrolley(id);
+      if (!trolley) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Araba bulunamadı' });
+      }
+      const ok = deleteTrolley(id);
+      if (!ok) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Araba silinemedi' });
+      }
+      writeAudit({
+        userId: request.user.sub,
+        username: request.user.username,
+        action: 'delete',
+        entityType: 'trace_trolley',
+        entityId: trolley.code,
+        ipAddress: request.ip,
+      });
+      return reply.send({ success: true });
     }
   );
 
@@ -253,6 +287,20 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  // Araba Değiştir — istasyonun aktif arabasını kaldır
+  app.delete<{ Params: { key: string } }>(
+    '/stations/:key/trolley',
+    async (request, reply) => {
+      const station = getStationByKey(request.params.key);
+      if (!station) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
+      }
+      clearActiveTrolley(station.id);
+      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'edit', entityType: 'trace_station_context', entityId: station.key, details: { action: 'clear_trolley' }, ipAddress: request.ip });
+      return reply.send({ success: true });
+    }
+  );
+
   // İstasyonun mevcut çalışma bağlamı (UI geri yükleme için)
   app.get<{ Params: { key: string } }>('/stations/:key/context', async (request, reply) => {
     const station = getStationByKey(request.params.key);
@@ -273,10 +321,24 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
         };
       }
     }
-    return { trolley, productId: ctx.productId, lastCapture: ctx.lastCapture };
+    const trolleyItems = trolley ? getTrolleyProductItems(trolley.id) : [];
+    return { trolley, trolleyItems, productId: ctx.productId, lastCapture: ctx.lastCapture };
   });
 
   // ─── Ürünler ─────────────────────────────────────────────────────────────
+  app.post('/products', async (request, reply) => {
+    const result = await createNewProduct(request.user.sub);
+    writeAudit({
+      userId: request.user.sub,
+      username: request.user.username,
+      action: 'create',
+      entityType: 'trace_product',
+      entityId: result.product.product_id,
+      ipAddress: request.ip,
+    });
+    return reply.status(201).send(result);
+  });
+
   app.get<{ Querystring: { status?: string; limit?: string } }>('/products', async (request) => ({
     products: listProducts({ status: request.query.status, limit: request.query.limit ? Number(request.query.limit) : undefined }),
   }));
@@ -287,6 +349,27 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ürün bulunamadı' });
     }
     return { product, records: getProductRecords(product.product_id) };
+  });
+
+  app.delete<{ Params: { id: string } }>('/products/:id', async (request, reply) => {
+    const id = Number(request.params.id);
+    const product = getProduct(id);
+    if (!product) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ürün bulunamadı' });
+    }
+    const ok = deleteProduct(id);
+    if (!ok) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ürün silinemedi' });
+    }
+    writeAudit({
+      userId: request.user.sub,
+      username: request.user.username,
+      action: 'delete',
+      entityType: 'trace_product',
+      entityId: product.product_id,
+      ipAddress: request.ip,
+    });
+    return reply.send({ success: true });
   });
 
   // ─── Tarama (ana işlem noktası) ──────────────────────────────────────────

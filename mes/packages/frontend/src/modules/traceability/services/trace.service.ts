@@ -5,6 +5,7 @@ import { api } from '../../../core/services/api';
 export type StationCapability =
   | 'qr_generate'
   | 'trolley_read'
+  | 'trolley_assign'
   | 'batch_assign'
   | 'ok_nok'
   | 'plc_acquire'
@@ -26,17 +27,19 @@ export interface StationConfig {
   fields?: string[];
   labelWidth?: number;  // QR etiket genişliği (mm)
   labelHeight?: number; // QR etiket yüksekliği (mm)
-  // ─── PLC Data (plc_acquire) ───
+  // ─── PLC Data (plc_acquire) & Araba Atama (trolley_assign) ───
   dataTagIds?: number[];  // ürüne yazılacak tag'ler (slot tag de dahil)
   triggerTagId?: number;  // trigger biti
   // Shell ID kaynağı (yok/'scan' = taranan ürün; 'plc' = PLC'den; 'trolley' = arabadan)
   shellIdSource?: 'plc' | 'trolley';
   shellIdTagId?: number;        // shellIdSource='plc': Shell ID okunacak tag
+  trolleyIdTagId?: number;      // shellIdSource='trolley': Trolley ID okunacak tag
   trolleyMatchMode?: 'row' | 'all'; // shellIdSource='trolley': satır bazlı / tüm ürünler
   rowTagId?: number;            // trolleyMatchMode='row': satır numarası tag'i
   rowSize?: number;             // satır başına ürün (varsayılan 4)
   /** trolley_read: okutunca önceki içerik otomatik temizlensin mi (varsayılan true; yalnız ilk/yükleme istasyonu) */
   clearOnRead?: boolean;
+  slotTagId?: number;           // PLC'den okunan trolley slot numarası tag'i
 }
 
 export interface Station {
@@ -122,6 +125,19 @@ export interface ScanResult {
   alarm?: boolean;
 }
 
+export interface TrolleyProductItem {
+  slotNumber: number;
+  productId: string;
+  status: string;
+  stepIndex: number;
+  records: {
+    stationName: string;
+    status: string | null;
+    data: Record<string, unknown> | null;
+    createdAt: string;
+  }[];
+}
+
 export interface QrLabel {
   productId: string;
   svgPath: string;
@@ -159,8 +175,10 @@ export const traceService = {
   listTrolleys: () => api.get<{ trolleys: Trolley[] }>('/api/trace/trolleys'),
   createTrolley: (code: string, slotCount?: number) =>
     api.post<{ trolley: Trolley }>('/api/trace/trolleys', { code, slotCount }),
+  deleteTrolley: (id: number) => api.delete<{ success: boolean }>(`/api/trace/trolleys/${id}`),
 
   // Ürünler
+  createProduct: () => api.post<{ product: Product; qrLabel: QrLabel }>('/api/trace/products'),
   listProducts: (opts?: { status?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (opts?.status) qs.set('status', opts.status);
@@ -170,6 +188,7 @@ export const traceService = {
   },
   getProduct: (productId: string) =>
     api.get<{ product: Product; records: StationRecord[] }>(`/api/trace/products/${encodeURIComponent(productId)}`),
+  deleteProduct: (id: number) => api.delete<{ success: boolean }>(`/api/trace/products/${id}`),
 
   // Tarama
   scan: (input: ScanInput) => api.post<ScanResult>('/api/trace/scan', input),
@@ -177,8 +196,10 @@ export const traceService = {
   // İstasyon çalışma bağlamı (trolley_read: araba onayı)
   confirmTrolley: (stationKey: string, trolleyCode: string) =>
     api.post<{ ok: boolean; trolley: TrolleyContext }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/trolley`, { trolleyCode }),
+  clearTrolley: (stationKey: string) =>
+    api.delete<{ success: boolean }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/trolley`),
   getStationContext: (stationKey: string) =>
-    api.get<{ trolley: TrolleyContext | null; productId: string | null; lastCapture: LastCapture | null }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/context`),
+    api.get<{ trolley: TrolleyContext | null; trolleyItems?: TrolleyProductItem[]; productId: string | null; lastCapture: LastCapture | null }>(`/api/trace/stations/${encodeURIComponent(stationKey)}/context`),
 
   // Araba kapasitesi (slot_count) — kalıcı
   updateTrolley: (id: number, slotCount: number) =>
@@ -213,6 +234,7 @@ export const traceService = {
 export const CAPABILITY_KEYS: StationCapability[] = [
   'qr_generate',
   'trolley_read',
+  'trolley_assign',
   'batch_assign',
   'ok_nok',
   'plc_acquire',

@@ -509,6 +509,33 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    id: 5,
+    name: 'recipe_tags_cascade_delete',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE recipe_tags_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipe_id    INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+            tag_id       INTEGER NOT NULL REFERENCES plc_tags(id) ON DELETE CASCADE,
+            display_name TEXT,
+            widget_type  TEXT DEFAULT 'numeric',
+            sort_order   INTEGER DEFAULT 0,
+            created_at   TEXT DEFAULT (datetime('now')),
+            UNIQUE(recipe_id, tag_id)
+        );
+
+        INSERT INTO recipe_tags_new
+          (id, recipe_id, tag_id, display_name, widget_type, sort_order, created_at)
+         SELECT id, recipe_id, tag_id, display_name, widget_type, sort_order, created_at
+         FROM recipe_tags;
+
+        DROP TABLE recipe_tags;
+        ALTER TABLE recipe_tags_new RENAME TO recipe_tags;
+        CREATE INDEX idx_recipe_tags_recipe ON recipe_tags(recipe_id);
+      `);
+    },
+  },
 ];
 
 /**

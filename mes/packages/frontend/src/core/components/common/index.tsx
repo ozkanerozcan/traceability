@@ -272,73 +272,107 @@ interface ModalProps {
   modalStack?: boolean;
 }
 
+interface ModalStackEntry {
+  id: symbol;
+  onClose: () => void;
+  listeners: Set<(depth: number) => void>;
+}
+
 /**
- * Açık modal yığını — Escape yalnızca EN ÜSTTEKİ modalı kapatır.
- * (İç içe pop-up deseninde alttaki diyalog açık kalır.)
- */
-const modalCloseStack: Array<() => void> = [];
+  * Açık modal yığını — Escape yalnızca EN ÜSTTEKİ modalı kapatır.
+  * (İç içe pop-up deseninde alttaki diyalog açık kalır.)
+  */
+const globalModalStack: ModalStackEntry[] = [];
 let escapeListenerAttached = false;
 
 function handleGlobalEscape(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
-  const topmost = modalCloseStack[modalCloseStack.length - 1];
-  topmost?.();
+  const topmost = globalModalStack[globalModalStack.length - 1];
+  topmost?.onClose();
+}
+
+function notifyStackDepths() {
+  globalModalStack.forEach((entry, idx) => {
+    entry.listeners.forEach((fn) => fn(idx));
+  });
 }
 
 export function Modal({ open, title, onClose, children, footer, wide, modalStack }: ModalProps) {
+  const [depth, setDepth] = useState<number>(0);
+  const modalIdRef = useRef<symbol | null>(null);
+  if (!modalIdRef.current) {
+    modalIdRef.current = Symbol('Modal');
+  }
 
-  // onClose referansını ref'te tut — useEffect yalnızca `open` değişince
-  // çalışır, onClose'un her render'da yeni fonksiyon olması stack'i bozmaz
+  // onClose referansını ref'te tut — onClose'un her render'da yeni fonksiyon olması stack'i bozmaz
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // stableOnClose referansını da ref'te tut — cleanup aynı referansı
-  // bulup kaldırabilsin (indexOf referans eşitliği kullanır)
-  const stableOnCloseRef = useRef<(() => void) | null>(null);
-
-  // Escape ile kapat (yalnız en üstteki) + arka plan kaydırmasını kilitle
+  // Escape ile kapat (yalnız en üstteki) + arka plan kaydırmasını kilitle + dinamik z-index depth
   useEffect(() => {
     if (!open) return;
+    const modalId = modalIdRef.current!;
+
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    const stableOnClose = () => onCloseRef.current();
-    stableOnCloseRef.current = stableOnClose;
-    modalCloseStack.push(stableOnClose);
+    let entry = globalModalStack.find((e) => e.id === modalId);
+    if (!entry) {
+      entry = {
+        id: modalId,
+        onClose: () => onCloseRef.current(),
+        listeners: new Set(),
+      };
+      globalModalStack.push(entry);
+    } else {
+      entry.onClose = () => onCloseRef.current();
+    }
+
+    const listener = (newDepth: number) => {
+      setDepth(newDepth);
+    };
+    entry.listeners.add(listener);
+
+    const idx = globalModalStack.findIndex((e) => e.id === modalId);
+    if (idx !== -1) {
+      setDepth(idx);
+    }
+    notifyStackDepths();
+
     if (!escapeListenerAttached) {
       document.addEventListener('keydown', handleGlobalEscape);
       escapeListenerAttached = true;
     }
 
     return () => {
-      document.body.style.overflow = prevOverflow;
-      const idx = modalCloseStack.indexOf(stableOnClose);
-      if (idx !== -1) modalCloseStack.splice(idx, 1);
-      stableOnCloseRef.current = null;
-      if (modalCloseStack.length === 0 && escapeListenerAttached) {
-        document.removeEventListener('keydown', handleGlobalEscape);
-        escapeListenerAttached = false;
+      if (entry) {
+        entry.listeners.delete(listener);
+      }
+      const findIdx = globalModalStack.findIndex((e) => e.id === modalId);
+      if (findIdx !== -1) {
+        globalModalStack.splice(findIdx, 1);
+      }
+      notifyStackDepths();
+
+      if (globalModalStack.length === 0) {
+        document.body.style.overflow = prevOverflow;
+        if (escapeListenerAttached) {
+          document.removeEventListener('keydown', handleGlobalEscape);
+          escapeListenerAttached = false;
+        }
       }
     };
   }, [open]);
 
   if (!open) return null;
 
-  // Dinamik z-index: her açılan modal, bir öncekinden bir basamak yüksekte
-  // olur. modalCloseStack.length, render anında bu modal'dan önce açılmış
-  // olanların sayısını verir (effect henüz push yapmadığı için).
-  // Böylece iç içe açılan modal'lar (StationForm → CapabilityConfig →
-  // Select picker) her zaman doğru sıralama ile üst üste biner.
-  const stackDepth = modalCloseStack.length;
-  const overlayZIndex = modalStack
-    ? `calc(var(--z-modal) + ${stackDepth} * var(--z-modal-step))`
+  // Dinamik z-index: Her açık modal, yığındaki (globalModalStack) sıra numarasına (depth) göre z-index alır.
+  // Böylece iç içe açılan modal'lar ve Select/Picker pop-up'ları her zaman doğru sıralama ile üst üste biner.
+  const overlayZIndex = modalStack || depth > 0
+    ? `calc(var(--z-modal) + ${depth} * var(--z-modal-step))`
     : undefined;
 
   // Portal: overlay her zaman document.body'ye render edilir.
-  // Böylece iç içe pop-up'larda ikincil diyalog, üst modalın
-  // backdrop-filter containing block'una hapsolMAZ — tam sayfa
-  // karartma + blur ile önceki modalın üzerinde açılır
-  // (TagForm → NodeBrowserDialog ile aynı desen).
   return createPortal(
     <div
       className="modal-overlay"
@@ -347,7 +381,6 @@ export function Modal({ open, title, onClose, children, footer, wide, modalStack
     >
       <div
         className={`modal${wide ? ' modal-wide' : ''}`}
-
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

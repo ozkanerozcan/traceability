@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Printer } from 'lucide-react';
-import { Alert, Badge, Modal, Select, Table, useToast } from '../../../core/components/common';
+import { Plus, Printer, Trash2 } from 'lucide-react';
+import { Alert, Badge, Button, ConfirmDialog, Modal, Select, Table, useToast } from '../../../core/components/common';
 import { traceService, type Product, type QrLabel, type StationRecord } from '../services/trace.service';
 import QrLabelModal from './QrLabelModal';
 
@@ -20,6 +20,10 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ product: Product; records: StationRecord[] } | null>(null);
   const [qrLabel, setQrLabel] = useState<QrLabel | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -55,17 +59,51 @@ export default function ProductsPage() {
     }
   };
 
+  const handleCreateProduct = async () => {
+    setCreating(true);
+    try {
+      const { product, qrLabel: label } = await traceService.createProduct();
+      toast.success(t('trace.productCreated', { id: product.product_id }));
+      setQrLabel(label);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await traceService.deleteProduct(deleteTarget.id);
+      toast.success(t('trace.productDeleted', { id: deleteTarget.product_id }));
+      setDeleteTarget(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
         <h1 style={{ fontSize: 'var(--font-size-2xl)' }}>{t('trace.products')}</h1>
-        <div style={{ minWidth: 180 }}>
-          <Select aria-label={t('common.status')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">{t('workOrder.allStatuses')}</option>
-            <option value="in_progress">{t('trace.status.in_progress')}</option>
-            <option value="completed">{t('trace.status.completed')}</option>
-            <option value="rejected">{t('trace.status.rejected')}</option>
-          </Select>
+        <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 180 }}>
+            <Select aria-label={t('common.status')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">{t('workOrder.allStatuses')}</option>
+              <option value="in_progress">{t('trace.status.in_progress')}</option>
+              <option value="completed">{t('trace.status.completed')}</option>
+              <option value="rejected">{t('trace.status.rejected')}</option>
+            </Select>
+          </div>
+          <Button onClick={() => void handleCreateProduct()} disabled={creating}>
+            <Plus size={16} /> {t('trace.addProduct')}
+          </Button>
         </div>
       </div>
 
@@ -105,6 +143,9 @@ export default function ProductsPage() {
                   <div className="flex gap-1">
                     <button className="btn-icon" title={t('trace.print')} onClick={() => showQr(p.product_id)}>
                       <Printer size={16} />
+                    </button>
+                    <button className="btn-icon text-danger" title={t('trace.deleteProduct')} onClick={() => setDeleteTarget(p)}>
+                      <Trash2 size={16} />
                     </button>
                   </div>
                 </td>
@@ -162,6 +203,18 @@ export default function ProductsPage() {
 
       {/* ─── QR etiket önizleme + yazdırma ─── */}
       <QrLabelModal open={qrLabel !== null} label={qrLabel} onClose={() => setQrLabel(null)} />
+
+      {/* ─── Ürün silme onay diyaloğu ─── */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={t('trace.deleteProduct')}
+        message={deleteTarget ? t('trace.deleteProductConfirm', { id: deleteTarget.product_id }) : ''}
+        confirmLabel={t('common.delete')}
+        danger
+        busy={deleting}
+        onConfirm={() => void handleDeleteProduct()}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

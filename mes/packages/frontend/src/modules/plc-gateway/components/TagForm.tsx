@@ -224,7 +224,7 @@ export default function TagForm({ open, onClose, onSaved, plcId, protocol, tag }
             </div>
             <div style={{ flex: 1 }}>
               <Input
-                label={t('plc.pollingInterval')}
+                label={form.acquisitionMode === 'subscribe' ? t('plc.samplingInterval') : t('plc.pollingInterval')}
                 type="number"
                 min={100}
                 step={100}

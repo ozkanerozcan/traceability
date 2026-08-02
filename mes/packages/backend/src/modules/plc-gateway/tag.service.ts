@@ -113,6 +113,10 @@ export function updateTag(id: number, input: Partial<TagInput>): PlcTagRow | und
 
 export function deleteTag(id: number): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM plc_tags WHERE id = ?').run(id);
-  return result.changes > 0;
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM recipe_tags WHERE tag_id = ?').run(id);
+    const result = db.prepare('DELETE FROM plc_tags WHERE id = ?').run(id);
+    return result.changes > 0;
+  });
+  return transaction();
 }

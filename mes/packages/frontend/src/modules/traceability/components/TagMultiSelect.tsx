@@ -33,7 +33,11 @@ export default function TagMultiSelect({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const selectedSet = new Set(selectedIds);
+  // Geçerli (var olan ve benzersiz) tag ID'leri
+  const validSelectedIds = Array.from(new Set(selectedIds)).filter((id) =>
+    tags.some((tg) => tg.id === id)
+  );
+  const selectedSet = new Set(validSelectedIds);
   const selectedTags = tags.filter((tg) => selectedSet.has(tg.id));
 
   const filteredTags = tags.filter((tg) => {
@@ -49,21 +53,21 @@ export default function TagMultiSelect({
   const toggle = (tagId: number) => {
     if (disabled) return;
     if (selectedSet.has(tagId)) {
-      onChange(selectedIds.filter((id) => id !== tagId));
+      onChange(validSelectedIds.filter((id) => id !== tagId));
     } else {
-      onChange([...selectedIds, tagId]);
+      onChange([...validSelectedIds, tagId]);
     }
   };
 
   const removeTag = (tagId: number) => {
     if (disabled) return;
-    onChange(selectedIds.filter((id) => id !== tagId));
+    onChange(validSelectedIds.filter((id) => id !== tagId));
   };
 
   const summary =
-    selectedIds.length === 0
+    validSelectedIds.length === 0
       ? (placeholder ?? t('trace.noTagsSelected'))
-      : t('trace.nTagsSelected', { count: selectedIds.length });
+      : t('trace.nTagsSelected', { count: validSelectedIds.length });
 
   return (
     <div className="form-group">
@@ -151,7 +155,7 @@ export default function TagMultiSelect({
         modalStack
         footer={
           <Button onClick={() => setPickerOpen(false)}>
-            {t('common.confirm')} ({selectedIds.length})
+            {t('common.confirm')} ({validSelectedIds.length})
           </Button>
         }
       >

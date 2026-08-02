@@ -140,8 +140,12 @@ export function updatePlc(id: number, input: Partial<PlcProfileInput>): PlcProfi
 
 export function deletePlc(id: number): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM plc_profiles WHERE id = ?').run(id);
-  return result.changes > 0;
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM recipe_tags WHERE tag_id IN (SELECT id FROM plc_tags WHERE plc_id = ?)').run(id);
+    const result = db.prepare('DELETE FROM plc_profiles WHERE id = ?').run(id);
+    return result.changes > 0;
+  });
+  return transaction();
 }
 
 export function setPlcActive(id: number, active: boolean): void {

@@ -189,7 +189,7 @@ function deriveType(caps: StationCapability[]): string {
 }
 
 /** Konfigürasyon gerektiren yetenekler */
-const CONFIGURABLE: StationCapability[] = ['qr_generate', 'trolley_read', 'plc_acquire', 'wait_control', 'batch_assign'];
+const CONFIGURABLE: StationCapability[] = ['qr_generate', 'trolley_read', 'trolley_assign', 'plc_acquire', 'wait_control', 'batch_assign'];
 
 // ─── İstasyon Formu ─────────────────────────────────────────────────────────
 
@@ -406,7 +406,7 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
     onChange({ ...config, [key]: value });
   };
 
-  const shellSrc: 'scan' | 'plc' | 'trolley' = config.shellIdSource ?? 'scan';
+  const shellSrc: 'plc' | 'trolley' = config.shellIdSource === 'trolley' ? 'trolley' : 'plc';
 
   return (
     <Modal
@@ -490,10 +490,9 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
           <Select
             label={t('trace.shellIdSource')}
             value={shellSrc}
-            onChange={(e) => set('shellIdSource', e.target.value === 'scan' ? undefined : (e.target.value as 'plc' | 'trolley'))}
+            onChange={(e) => set('shellIdSource', e.target.value as 'plc' | 'trolley')}
             disabled={!config.plcId}
           >
-            <option value="scan">{t('trace.src.scan')}</option>
             <option value="plc">{t('trace.src.plc')}</option>
             <option value="trolley">{t('trace.src.trolley')}</option>
           </Select>
@@ -512,15 +511,22 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
           )}
 
           {shellSrc === 'trolley' && (
-            <div className="flex gap-3">
-              <div style={{ flex: 1 }}>
-                <Select label={t('trace.trolleyMatch')} value={config.trolleyMatchMode ?? 'all'} onChange={(e) => set('trolleyMatchMode', e.target.value as 'row' | 'all')}>
-                  <option value="all">{t('trace.match.all')}</option>
-                  <option value="row">{t('trace.match.row')}</option>
-                </Select>
-              </div>
-              {(config.trolleyMatchMode ?? 'all') === 'row' && (
-                <>
+            <>
+              <Select label={t('trace.trolleyIdTag')} value={config.trolleyIdTagId ?? ''} onChange={(e) => set('trolleyIdTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
+                <option value="">{t('trace.noTag')}</option>
+                {tags.map((tg) => (
+                  <option key={tg.id} value={tg.id}>{tg.name}</option>
+                ))}
+              </Select>
+
+              <div className="flex gap-3">
+                <div style={{ flex: 1 }}>
+                  <Select label={t('trace.trolleyMatch')} value={config.trolleyMatchMode ?? 'all'} onChange={(e) => set('trolleyMatchMode', e.target.value as 'row' | 'all')}>
+                    <option value="all">{t('trace.match.all')}</option>
+                    <option value="row">{t('trace.match.row')}</option>
+                  </Select>
+                </div>
+                {(config.trolleyMatchMode ?? 'all') === 'row' && (
                   <div style={{ flex: 1 }}>
                     <Select label={t('trace.rowTag')} value={config.rowTagId ?? ''} onChange={(e) => set('rowTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
                       <option value="">{t('trace.noTag')}</option>
@@ -529,12 +535,9 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
                       ))}
                     </Select>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <Input label={t('trace.rowSize')} type="number" min={1} max={20} value={config.rowSize ?? 4} onChange={(e) => set('rowSize', Number(e.target.value))} />
-                  </div>
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            </>
           )}
 
           {config.plcId && (
@@ -546,6 +549,77 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
               disabled={!config.plcId}
             />
           )}
+        </>
+      )}
+      {/* PLC Araba Atama (trolley_assign) — Trigger + Shell ID Tag + Slot Tag */}
+      {cap === 'trolley_assign' && (
+        <>
+          <p className="text-muted mb-4" style={{ fontSize: 'var(--font-size-xs)' }}>
+            {t('trace.trolleyAssignDesc')}
+          </p>
+
+          {/* PLC Seçimi */}
+          <Select
+            label={t('trace.plc')}
+            value={config.plcId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value ? Number(e.target.value) : undefined;
+              onChange({ ...config, plcId: v, triggerTagId: undefined, shellIdTagId: undefined, slotTagId: undefined });
+              if (v) onPlcChange(v);
+            }}
+          >
+            {plcs.length === 0 ? (
+              <option value="" disabled>{t('trace.noPlcAvailable')}</option>
+            ) : null}
+            {plcs.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
+
+          {/* Trigger Biti — yalnız subscribe + BOOL */}
+          <Select
+            label={t('trace.triggerTag')}
+            value={config.triggerTagId ?? ''}
+            onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)}
+            disabled={!config.plcId}
+          >
+            {config.plcId && tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').length === 0 ? (
+              <option value="" disabled>{t('trace.noBoolTag')}</option>
+            ) : null}
+            {tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').map((tg) => (
+              <option key={tg.id} value={tg.id}>{tg.name}</option>
+            ))}
+          </Select>
+
+          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))' }}>
+            {t('trace.triggerSubscribeHint')}
+          </p>
+
+          {/* Shell ID Tag'i */}
+          <Select
+            label={t('trace.shellIdTag')}
+            value={config.shellIdTagId ?? ''}
+            onChange={(e) => set('shellIdTagId', e.target.value ? Number(e.target.value) : undefined)}
+            disabled={!config.plcId}
+          >
+            <option value="">{t('trace.noTag')}</option>
+            {tags.map((tg) => (
+              <option key={tg.id} value={tg.id}>{tg.name}</option>
+            ))}
+          </Select>
+
+          {/* Trolley Slot Numarası Tag'i */}
+          <Select
+            label={t('trace.slotTag')}
+            value={config.slotTagId ?? ''}
+            onChange={(e) => set('slotTagId', e.target.value ? Number(e.target.value) : undefined)}
+            disabled={!config.plcId}
+          >
+            <option value="">{t('trace.noTag')}</option>
+            {tags.map((tg) => (
+              <option key={tg.id} value={tg.id}>{tg.name}</option>
+            ))}
+          </Select>
         </>
       )}
     </Modal>

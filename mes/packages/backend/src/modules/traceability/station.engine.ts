@@ -1,5 +1,6 @@
 import { workerManager } from '../plc-gateway/workers/worker.manager.js';
 import { getDb } from '../../core/database/connection.js';
+import { getSetting } from '../system-settings/settings.service.js';
 import { qrToSvgPath } from './qr/qrcode.js';
 import {
   addAlarm,
@@ -18,6 +19,7 @@ import {
   getTrolleyByCode,
   getTrolleySlots,
   hasRecord,
+  listStations,
   nextFreeSlot,
   parseCapabilities,
   parseConfig,
@@ -226,7 +228,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
   const station = getStation(stationId);
   if (!station) return;
   const config = parseConfig(station.config);
-  if (!config.plcId || !config.triggerTagId || !config.dataTagIds?.length) return;
+  if (!config.plcId || !config.triggerTagId) return;
 
   const plcId = config.plcId;
   const triggerTagId = config.triggerTagId;
@@ -242,7 +244,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
   };
 
   const ctx = getStationContext(stationId);
-  const source = config.shellIdSource ?? 'scan';
+  const source = config.shellIdSource ?? 'plc';
 
   // ─── Hedef ürün(ler)i Shell ID kaynağına göre belirle ───
   const targets: ProductRow[] = [];
@@ -263,19 +265,34 @@ export async function capturePlcData(stationId: number): Promise<void> {
       }
     }
   } else if (source === 'trolley') {
-    // Senaryo 2: Önce Trolley ID okunur → arabadaki Shell ID'ler bulunur
-    if (ctx.trolleyId) {
-      const slots = getTrolleySlots(ctx.trolleyId);
-      const rowSize = config.rowSize ?? 4;
+    // Senaryo 2: Trolley ID PLC tag'inden okunur (varsa) veya aktif araba bağlamından alınır
+    let trolleyId = ctx.trolleyId;
+    if (config.trolleyIdTagId) {
+      try {
+        const v = await readPlcValue(plcId, config.trolleyIdTagId);
+        if (v !== null && String(v).trim()) {
+          const trCode = String(v).trim();
+          const tr = getTrolleyByCode(trCode);
+          if (tr) trolleyId = tr.id;
+        }
+      } catch {
+        // fallback to ctx.trolleyId
+      }
+    }
+    if (trolleyId) {
+      const slots = getTrolleySlots(trolleyId);
+      const systemRowSize = Number(getSetting('row_size')) || 4;
+      const rowSize = config.rowSize ?? systemRowSize;
       if (config.trolleyMatchMode === 'row' && config.rowTagId) {
-        // Satır bazlı: PLC'den satır numarası oku → o satırdaki ürünler
+        // Satır bazlı: PLC'den satır numarası oku (1. satır = 1 veya 0 → 1..4 slotlar; 2. satır = 2 → 5..8 slotlar)
         let rowNum = 0;
         try {
           rowNum = Number(await readPlcValue(plcId, config.rowTagId)) || 0;
         } catch {
           rowNum = 0;
         }
-        const start = rowNum * rowSize;
+        const rowIndex = Math.max(0, rowNum > 0 ? rowNum - 1 : 0);
+        const start = rowIndex * rowSize;
         for (const s of slots) {
           if (s.slot_number > start && s.slot_number <= start + rowSize) {
             const p = getProductByProductId(s.product_id);
@@ -309,30 +326,41 @@ export async function capturePlcData(stationId: number): Promise<void> {
   }
 
   // ─── Veri tag'lerini taze oku ───
-  // Slot tag de dataTagIds içinde yer alır; değeri otomatik kaydedilir.
   const data: Record<string, unknown> = {};
-  for (const tagId of config.dataTagIds) {
-    try {
-      data[`tag_${tagId}`] = await readPlcValue(plcId, tagId);
-    } catch {
-      data[`tag_${tagId}`] = null;
+  if (config.dataTagIds?.length) {
+    for (const tagId of config.dataTagIds) {
+      try {
+        data[`tag_${tagId}`] = await readPlcValue(plcId, tagId);
+      } catch {
+        data[`tag_${tagId}`] = null;
+      }
     }
   }
 
   // ─── Hedef ürün(ler)e veriyi yaz + ilerlet ───
   for (const product of targets) {
-    // scan modunda aktif araba varsa sonraki boş slota ata
+    // plc modunda aktif araba varsa slot numarasına ata (slotTagId PLC'den okunur)
     let slot: number | null = null;
-    if (source === 'scan' && ctx.trolleyId) {
-      const trolley = getTrolley(ctx.trolleyId);
-      if (trolley) {
-        slot = nextFreeSlot(trolley.id, trolley.slot_count);
-        if (slot) {
-          try {
-            assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
-          } catch {
-            // slot dolu olabilir — kaydı yine de yaz
-          }
+    if (source === 'plc' && ctx.trolleyId) {
+      if (config.slotTagId) {
+        try {
+          const vSlot = await readPlcValue(plcId, config.slotTagId);
+          slot = vSlot !== null ? Number(vSlot) : null;
+        } catch {
+          slot = null;
+        }
+      }
+      if (!slot) {
+        const trolley = getTrolley(ctx.trolleyId);
+        if (trolley) {
+          slot = nextFreeSlot(trolley.id, trolley.slot_count);
+        }
+      }
+      if (slot) {
+        try {
+          assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
+        } catch {
+          // slot dolu olabilir — kaydı yine de yaz
         }
       }
     }
@@ -549,4 +577,53 @@ export async function processScan(input: ScanInput, userId: number): Promise<Sca
   if (caps.includes('ok_nok')) return handleOkNok(station, input, userId);
 
   throw new StationError('VALIDATION', `İstasyonun desteklenen bir capability'si yok: ${station.name}`);
+}
+
+export async function createNewProduct(userId: number): Promise<{
+  product: ProductRow;
+  qrLabel: {
+    productId: string;
+    qrContent: string;
+    svgPath: string;
+    size: number;
+    widthMm: number;
+    heightMm: number;
+  };
+}> {
+  const stations = listStations();
+  const qrStation = stations.find((s) => parseCapabilities(s.capabilities).includes('qr_generate'));
+
+  if (qrStation) {
+    const res = await processScan({ stationKey: qrStation.key }, userId);
+    const productId = res.productId!;
+    const prod = getProductByProductId(productId)!;
+    const config = parseConfig(qrStation.config);
+    return {
+      product: prod,
+      qrLabel: {
+        productId,
+        qrContent: productId,
+        svgPath: res.qrLabel?.svgPath ?? '',
+        size: res.qrLabel?.size ?? 128,
+        widthMm: config.labelWidth ?? 50,
+        heightMm: config.labelHeight ?? 30,
+      },
+    };
+  }
+
+  const productId = generateProductId();
+  const product = createProduct({ productId, routeId: 1, qrContent: productId });
+  const { path, size } = qrToSvgPath(productId);
+
+  return {
+    product,
+    qrLabel: {
+      productId,
+      qrContent: productId,
+      svgPath: path,
+      size,
+      widthMm: 50,
+      heightMm: 30,
+    },
+  };
 }

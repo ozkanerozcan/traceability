@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil } from 'lucide-react';
-import { Alert, Button, Card, Input, Modal, useToast } from '../../../core/components/common';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Alert, Button, Card, ConfirmDialog, Input, Modal, useToast } from '../../../core/components/common';
 import { traceService, type Trolley } from '../services/trace.service';
 
 export default function TrolleysPage() {
@@ -15,6 +15,9 @@ export default function TrolleysPage() {
   const [slotCount, setSlotCount] = useState<number>(20);
   const [editing, setEditing] = useState<Trolley | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<Trolley | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +71,21 @@ export default function TrolleysPage() {
     }
   };
 
+  const handleDeleteTrolley = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await traceService.deleteTrolley(deleteTarget.id);
+      toast.success(t('trace.trolleyDeleted', { code: deleteTarget.code }));
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
@@ -90,9 +108,14 @@ export default function TrolleysPage() {
               key={tr.id}
               title={tr.code}
               actions={
-                <button className="btn-icon" title={t('common.edit')} onClick={() => openEdit(tr)}>
-                  <Pencil size={16} />
-                </button>
+                <div className="flex gap-1">
+                  <button className="btn-icon" title={t('common.edit')} onClick={() => openEdit(tr)}>
+                    <Pencil size={16} />
+                  </button>
+                  <button className="btn-icon text-danger" title={t('trace.deleteTrolley')} onClick={() => setDeleteTarget(tr)}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               }
             >
               <div className="trace-slot-grid">
@@ -129,20 +152,19 @@ export default function TrolleysPage() {
         }
       >
         <Input label={t('trace.trolleyCode')} value={code} onChange={(e) => setCode(e.target.value)} placeholder="TR-001" autoFocus disabled={!!editing} />
-        <Input
-          label={t('trace.slotCount')}
-          type="number"
-          min={1}
-          max={100}
-          value={slotCount}
-          onChange={(e) => setSlotCount(Number(e.target.value))}
-        />
-        {editing && (
-          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
-            {t('trace.slotCountHint')}
-          </p>
-        )}
       </Modal>
+
+      {/* ─── Araba silme onay diyaloğu ─── */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={t('trace.deleteTrolley')}
+        message={deleteTarget ? t('trace.deleteTrolleyConfirm', { code: deleteTarget.code }) : ''}
+        confirmLabel={t('common.delete')}
+        danger
+        busy={deleting}
+        onConfirm={() => void handleDeleteTrolley()}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

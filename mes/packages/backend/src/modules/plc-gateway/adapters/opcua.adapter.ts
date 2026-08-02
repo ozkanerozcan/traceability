@@ -409,12 +409,46 @@ export class OpcUaAdapter {
   ): Promise<TagDataType | undefined> {
     try {
       const dv = await session.read({ nodeId, attributeId: AttributeIds.DataType });
-      if (!dv.statusCode.isGood()) return undefined;
-      const typeNodeId = dv.value?.value?.toString?.() ?? '';
-      // 'ns=0;i=11' → 11
-      const match = /i=(\d+)/.exec(typeNodeId);
-      if (!match) return undefined;
-      return BUILTIN_TYPE_MAP[Number(match[1])];
+      if (dv.statusCode.isGood() && dv.value?.value) {
+        const typeNodeId = dv.value.value.toString?.() ?? '';
+        const match = /i=(\d+)/.exec(typeNodeId);
+        if (match) {
+          const typeId = Number(match[1]);
+          if (BUILTIN_TYPE_MAP[typeId]) return BUILTIN_TYPE_MAP[typeId];
+        }
+        if (/string|text|char|wstring/i.test(typeNodeId)) {
+          return 'STRING';
+        }
+        // Custom DataType NodeId'sinin BrowseName'ini oku (Siemens S7 custom string/WString türleri)
+        try {
+          const nameDv = await session.read({ nodeId: typeNodeId, attributeId: AttributeIds.BrowseName });
+          const nameText = nameDv.value?.value?.name?.toString() ?? nameDv.value?.value?.toString() ?? '';
+          if (/string|wstring|char|text/i.test(nameText)) return 'STRING';
+          if (/bool/i.test(nameText)) return 'BOOL';
+          if (/int64/i.test(nameText)) return 'INT64';
+          if (/int32|dint/i.test(nameText)) return 'INT32';
+          if (/int16|int/i.test(nameText)) return 'INT16';
+          if (/float|real/i.test(nameText)) return 'FLOAT32';
+          if (/double/i.test(nameText)) return 'FLOAT64';
+        } catch {
+          // ignore
+        }
+      }
+
+      // Fallback: Değişkenin o anki canlı değerinin (Value attribute) runtime tipini oku
+      try {
+        const valDv = await session.read({ nodeId, attributeId: AttributeIds.Value });
+        if (valDv.statusCode?.isGood() && valDv.value?.value !== undefined && valDv.value?.value !== null) {
+          const val = valDv.value.value;
+          if (typeof val === 'string') return 'STRING';
+          if (typeof val === 'boolean') return 'BOOL';
+          if (typeof val === 'number') return Number.isInteger(val) ? 'INT32' : 'FLOAT32';
+        }
+      } catch {
+        // ignore
+      }
+
+      return undefined;
     } catch {
       return undefined;
     }
