@@ -605,6 +605,85 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 7,
+    name: 'traceability_shells_trolleys_tables',
+    up: (db) => {
+      db.exec(`
+        -- Eski görünümleri temizle
+        DROP VIEW IF EXISTS shells;
+        DROP VIEW IF EXISTS trolleys;
+        DROP VIEW IF EXISTS trace_products;
+        DROP VIEW IF EXISTS trace_trolleys;
+
+        -- 1. Shells tablosunu tüm kolonları ile sağlamlaştır
+        CREATE TABLE IF NOT EXISTS shells_new (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            shell_id           TEXT UNIQUE NOT NULL,
+            trolley_id         TEXT,
+            slot_number        INTEGER,
+            status             TEXT NOT NULL DEFAULT 'in_progress'
+                               CHECK(status IN ('in_progress','completed','rejected')),
+            route_id           INTEGER REFERENCES trace_routes(id),
+            current_step_index INTEGER NOT NULL DEFAULT 0,
+            qr_content         TEXT,
+            history            TEXT NOT NULL DEFAULT '[]',
+            created_at         TEXT DEFAULT (datetime('now')),
+            updated_at         TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Varsa trace_products veya eski shells verilerini aktar
+        INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
+        SELECT id, product_id, status, route_id, current_step_index, qr_content, trolley_code, slot_number, history, created_at, updated_at
+        FROM trace_products WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trace_products');
+
+        INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
+        SELECT id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at
+        FROM shells WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='shells');
+
+        DROP TABLE IF EXISTS shells;
+        ALTER TABLE shells_new RENAME TO shells;
+
+        -- 2. Trolleys tablosunu sağlamlaştır
+        CREATE TABLE IF NOT EXISTS trolleys_new (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            trolley_id  TEXT UNIQUE NOT NULL,
+            capacity    INTEGER NOT NULL DEFAULT 20,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        INSERT OR IGNORE INTO trolleys_new (id, trolley_id, capacity, is_active, created_at)
+        SELECT id, code, slot_count, is_active, created_at FROM trace_trolleys WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trace_trolleys');
+
+        INSERT OR IGNORE INTO trolleys_new (id, trolley_id, capacity, is_active, created_at)
+        SELECT id, trolley_id, capacity, is_active, created_at FROM trolleys WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trolleys');
+
+        DROP TABLE IF EXISTS trolleys;
+        ALTER TABLE trolleys_new RENAME TO trolleys;
+
+        -- Eski ilişki tablolarını temizle
+        DROP TABLE IF EXISTS trace_trolley_slots;
+        DROP TABLE IF EXISTS trace_station_records;
+        DROP TABLE IF EXISTS trace_qr_logs;
+        DROP TABLE IF EXISTS trace_products;
+        DROP TABLE IF EXISTS trace_trolleys;
+
+        -- İndeksler
+        CREATE INDEX IF NOT EXISTS idx_shells_status ON shells(status);
+        CREATE INDEX IF NOT EXISTS idx_shells_trolley ON shells(trolley_id);
+
+        -- Görünümler (VIEW)
+        CREATE VIEW IF NOT EXISTS trace_products AS
+        SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, '' AS plc_data, history, created_at, updated_at
+        FROM shells;
+
+        CREATE VIEW IF NOT EXISTS trace_trolleys AS
+        SELECT id, trolley_id AS code, capacity AS slot_count, is_active, created_at
+        FROM trolleys;
+      `);
+    },
+  },
 ];
 
 /**
