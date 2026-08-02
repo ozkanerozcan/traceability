@@ -418,3 +418,158 @@
 .trace-link:hover {
   color: var(--accent-hover);
 }
+
+/* ─── Full-width QR Generator & Hero Banner ─── */
+.trace-sim-wrapper.full-height-scroll {
+  height: auto;
+  min-height: calc(100vh - 110px);
+  overflow-y: visible;
+}
+
+.trace-sim-body.full-width-body {
+  overflow-y: visible;
+}
+
+.trace-qr-hero-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-8);
+  background: linear-gradient(135deg, rgba(253, 201, 84, 0.08) 0%, rgba(20, 22, 28, 0.6) 100%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .trace-qr-hero-banner {
+    flex-direction: column;
+    text-align: center;
+    padding: var(--space-5);
+  }
+}
+
+.trace-qr-hero-icon {
+  width: 76px;
+  height: 76px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(253, 201, 84, 0.2) 0%, rgba(253, 201, 84, 0.05) 100%);
+  border: 1px solid rgba(253, 201, 84, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  box-shadow: 0 0 20px rgba(253, 201, 84, 0.2);
+  flex-shrink: 0;
+}
+
+.trace-qr-hero-content {
+  flex: 1;
+}
+
+.trace-qr-hero-content h2 {
+  font-size: var(--font-size-2xl);
+  font-weight: 800;
+  margin: 0 0 var(--space-2) 0;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.trace-qr-hero-content p {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.btn-qr-hero-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 42px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent) 0%, #d99e1a 100%);
+  color: #111318;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(253, 201, 84, 0.35), 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-qr-hero-action:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 32px rgba(253, 201, 84, 0.5), 0 4px 8px rgba(0, 0, 0, 0.3);
+  filter: brightness(1.08);
+}
+
+.btn-qr-hero-action:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ─── Önceki QR Kodlar Mimarisi ─── */
+.trace-qr-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.trace-qr-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  position: relative;
+  transition: all 0.25s ease;
+  overflow: hidden;
+}
+
+.trace-qr-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 15px rgba(253, 201, 84, 0.15);
+}
+
+.trace-qr-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.trace-qr-card-preview {
+  background: #ffffff;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.trace-qr-card-id {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.trace-qr-card-date {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}

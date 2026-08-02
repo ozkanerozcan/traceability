@@ -204,12 +204,13 @@ export default function StationWorkPage() {
   };
 
   const tagName = (id?: number) => plcTags.find((x) => x.id === id)?.name ?? (id ? `#${id}` : '—');
+  const isQrStation = has('qr_generate') && !has('trolley_read');
 
   if (loading) return <p className="text-muted">{t('common.loading')}</p>;
   if (error || !station) return <Alert variant="danger">{error ?? t('trace.stationNotFound')}</Alert>;
 
   return (
-    <div className="trace-sim-wrapper">
+    <div className={`trace-sim-wrapper${isQrStation ? ' full-height-scroll' : ''}`}>
       {/* ─── Top Bar: İstasyon & Araba Bilgisi ─── */}
       <div className="trace-sim-header">
         <div className="flex items-center gap-3">
@@ -251,75 +252,73 @@ export default function StationWorkPage() {
       )}
 
       {/* ─── Simülasyon Gövdesi ─── */}
-      <div className="trace-sim-body">
-        {has('qr_generate') && !has('trolley_read') ? (
-          <div style={{ width: '100%', maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-            {/* QR Kod Üretim Ana Kartı */}
-            <div
-              style={{
-                background: 'var(--bg-card)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-6)',
-                border: '1px solid var(--border-color)',
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 'var(--space-4)',
-              }}
-            >
-              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(253, 201, 84, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--amber)' }}>
-                <QrIcon size={32} />
+      <div className={`trace-sim-body${isQrStation ? ' full-width-body' : ''}`}>
+        {isQrStation ? (
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+            {/* QR Kod Üretim Hero Banner */}
+            <div className="trace-qr-hero-banner">
+              <div className="trace-qr-hero-icon">
+                <QrIcon size={40} />
               </div>
-              <div>
-                <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, margin: '0 0 6px 0' }}>
-                  {t('trace.qrGeneratorTitle', { defaultValue: 'Shell ID & QR Kod Üretimi' })}
-                </h2>
-                <p className="text-muted" style={{ margin: 0, fontSize: 'var(--font-size-sm)', maxWidth: 520 }}>
-                  {t('trace.qrGeneratorHint', { defaultValue: 'Sistem tarafından önerilen Shell ID\'yi kullanabilir veya kendi özel Shell ID\'nizi belirleyebilirsiniz.' })}
+              <div className="trace-qr-hero-content">
+                <h2>{t('trace.qrGeneratorTitle', { defaultValue: 'Shell ID & QR Kod Üretimi' })}</h2>
+                <p>
+                  {t('trace.qrGeneratorHint', {
+                    defaultValue: 'Sistem tarafından önerilen Shell ID\'yi kullanabilir veya kendi özel Shell ID\'nizi belirleyebilirsiniz.',
+                  })}
                 </p>
               </div>
-              <Button className="btn-lg" onClick={() => void handlePrepareQrGeneration()} disabled={busy}>
-                <QrIcon size={20} /> {t('trace.generateQr', { defaultValue: 'QR Kod Üret' })}
-              </Button>
+              <button
+                className="btn-qr-hero-action"
+                onClick={() => void handlePrepareQrGeneration()}
+                disabled={busy}
+              >
+                <QrIcon size={24} />
+                <span>{t('trace.generateQr', { defaultValue: 'QR KOD ÜRET' })}</span>
+              </button>
             </div>
 
             {/* Son Üretilen QR Kodlar Izgarası */}
             <div>
-              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, marginBottom: 'var(--space-3)' }}>
-                📜 {t('trace.qrHistory', { defaultValue: 'Son Üretilen QR Kodlar' })}
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>📜</span> {t('trace.qrHistory', { defaultValue: 'Son Üretilen QR Kodlar' })}
+                </h3>
+                <Badge variant="info">{history.length} Ürün</Badge>
+              </div>
+
               {history.length === 0 ? (
                 <Alert variant="info">{t('trace.noQrHistory', { defaultValue: 'Henüz üretilmiş QR kod bulunmamaktadır.' })}</Alert>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
+                <div className="trace-qr-history-grid">
                   {history.map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-sm)',
-                        padding: 'var(--space-3)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: 'var(--space-2)',
-                      }}
-                    >
-                      <QrCode svgPath={item.svgPath} size={70} />
-                      <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', textAlign: 'center' }}>
-                        {item.productId}
+                    <div key={idx} className="trace-qr-card">
+                      <div className="trace-qr-card-header">
+                        <Badge variant={item.status === 'completed' ? 'success' : item.status === 'rejected' ? 'danger' : 'info'}>
+                          {t(`trace.status.${item.status}`, { defaultValue: item.status })}
+                        </Badge>
+                        {item.createdAt && (
+                          <span className="trace-qr-card-date">
+                            {new Date(item.createdAt + (item.createdAt.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
                       </div>
+
+                      <div className="trace-qr-card-preview">
+                        <QrCode svgPath={item.svgPath} size={96} />
+                      </div>
+
+                      <div className="trace-qr-card-id">{item.productId}</div>
+
                       <Button
                         variant="ghost"
-                        className="btn-sm w-full"
+                        className="w-full mt-1"
                         onClick={() => {
                           setQrLabel({ productId: item.productId, svgPath: item.svgPath, size: item.size });
                           setQrModalOpen(true);
                         }}
                       >
-                        <Printer size={14} /> {t('trace.reprint', { defaultValue: 'Önizle / Yazdır' })}
+                        <Printer size={16} /> {t('trace.reprint', { defaultValue: 'Önizle & Yazdır' })}
                       </Button>
                     </div>
                   ))}
