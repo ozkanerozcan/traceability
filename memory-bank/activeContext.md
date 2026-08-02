@@ -188,6 +188,12 @@
   - **Veri Tekrarı Temizliği:** `plc_data` kolonu kaldırılarak tüm PLC ölçümleri ve istasyon onayları tekil `history` JSON dizisinde birleştirildi. `trace.service.ts` metodları güncellendi.
   - **Değişen Dosyalar:** `migrations.ts`, `trace.service.ts`, `walkthrough.md`.
 
+- **2026-08-02 (QR Kod Üretim İstasyonu Akış İyileştirmesi & Özel Shell ID Desteği):**
+  - **Araba Zorunluluğu Kaldırıldı:** QR Kod Üretim (`qr_generate`) istasyonunda araba (`trolley_id`) sorma zorunluluğu kaldırıldı.
+  - **Düzenlenebilir Öneri & Pop-up:** "QR Kod Üret" butonuna tıklandığında backend `generateProductId()` ile önerilen Shell ID alınır, pop-up'ta gösterilir. Kullanıcı önerilen kodu kullanabilir veya kendi özel Shell ID'sini yazabilir.
+  - **Unique Kontrolü & Yazdırma:** "Oluştur & Yazdır" butonunda Shell ID benzersizliği doğrulanır (duplicate engel) ve anında yazdırılabilir `QrLabelModal` etiketi açılır.
+  - **Değişen Dosyalar:** `StationWorkPage.tsx`, `station.engine.ts`, `trace.routes.ts`, `trace.service.ts` (fe), `tr.json`, `en.json`.
+
 
 
 
