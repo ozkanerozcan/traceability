@@ -206,6 +206,13 @@ export default function StationWorkPage() {
   const tagName = (id?: number) => plcTags.find((x) => x.id === id)?.name ?? (id ? `#${id}` : '—');
   const isQrStation = has('qr_generate') && !has('trolley_read');
 
+  // Gerçek etiket boyutları (mm) — Yazdırma Pop-up'ı ile Birebir Aynı Etiket Görünümü
+  const labelW = station?.config.labelWidth && station.config.labelWidth > 0 ? station.config.labelWidth : 50;
+  const labelH = station?.config.labelHeight && station.config.labelHeight > 0 ? station.config.labelHeight : 30;
+  const padMm = 2;
+  const textMm = 6;
+  const cardQrMm = Math.max(8, Math.min(labelW - padMm * 2, labelH - padMm * 2 - textMm));
+
   if (loading) return <p className="text-muted">{t('common.loading')}</p>;
   if (error || !station) return <Alert variant="danger">{error ?? t('trace.stationNotFound')}</Alert>;
 
@@ -304,11 +311,13 @@ export default function StationWorkPage() {
                         )}
                       </div>
 
-                      <div className="trace-qr-card-preview">
-                        <QrCode svgPath={item.svgPath} size={96} />
+                      {/* Gerçek etiket önizleme konteyneri — Yazdırma Pop-up'ı ile BİREBİR AYNISI */}
+                      <div className="trace-qr-card-label-wrap">
+                        <div className="trace-qr-print" style={{ width: `${labelW}mm`, height: `${labelH}mm` }}>
+                          <QrCode svgPath={item.svgPath} size={item.size} sizeMm={cardQrMm} />
+                          <div className="trace-qr-print-text">{item.productId}</div>
+                        </div>
                       </div>
-
-                      <div className="trace-qr-card-id">{item.productId}</div>
 
                       <Button
                         variant="ghost"

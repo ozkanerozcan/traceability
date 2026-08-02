@@ -72,7 +72,7 @@ export default function QrLabelModal({ open, onClose, label, labelWidthMm, label
       }
     >
       <div className="trace-qr-preview-wrap">
-        <div className="trace-qr-print" style={{ width: `${w}mm`, height: `${h}mm` }}>
+        <div className="trace-qr-print trace-qr-print-modal-target" style={{ width: `${w}mm`, height: `${h}mm` }}>
           <QrCode svgPath={label.svgPath} size={label.size} sizeMm={qrMm} />
           <div className="trace-qr-print-text">{label.productId}</div>
         </div>
