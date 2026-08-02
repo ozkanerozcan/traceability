@@ -194,6 +194,11 @@
   - **Unique Kontrolü & Yazdırma:** "Oluştur & Yazdır" butonunda Shell ID benzersizliği doğrulanır (duplicate engel) ve anında yazdırılabilir `QrLabelModal` etiketi açılır.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `station.engine.ts`, `trace.routes.ts`, `trace.service.ts` (fe), `tr.json`, `en.json`.
 
+- **2026-08-02 (Veritabanı Migrasyonu Düzeltmesi — Migration 7):**
+  - **Kök Neden:** Mevcut veritabanı dosyalarında Migration 6 daha önceden uygulandığı için `shells` tablosu üzerinde `route_id` sütunu bulunmayan eski bir VIEW kalmıştı. Bu durum `no such column: route_id` hatasına yol açıyordu.
+  - **Çözüm:** Migration 7 (`traceability_shells_trolleys_tables`) eklendi. `shells_new` ve `trolleys_new` fiziki tabloları üzerinden `route_id` dahil tüm sütunlar yeniden sağlamlaştırıldı ve veriler eksiksiz aktarıldı.
+  - **Değişen Dosyalar:** `migrations.ts`.
+
 
 
 
