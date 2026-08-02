@@ -369,39 +369,52 @@ export async function capturePlcData(stationId: number): Promise<void> {
 
   // ─── Hedef ürün(ler)e veriyi yaz + araba slotuna ata + ilerlet ───
   for (const product of targets) {
-    // İstasyonda onaylı aktif araba (trolley) varsa ürünü slot numarasına bağla
+    // İstasyonda onaylı aktif araba (trolley) varsa ürünü YALNIZCA slotTagId ile slot numarasına bağla
     if (ctx.trolleyId) {
-      let slot: number | null = null;
-      // 1. PLC'den slot tag'i oku (varsa)
-      if (config.slotTagId) {
+      if (!config.slotTagId) {
+        addAlarm({
+          productId: product.product_id,
+          trolleyId: ctx.trolleyId,
+          stationId,
+          severity: 'warning',
+          message: `${station.name}: Slot tag'i (slotTagId) yapılandırılmamış. Araba slot ataması yalnızca PLC slotTagId tag'inden yapılabilir.`,
+        });
+      } else {
+        let slot: number | null = null;
         try {
           const vSlot = await readPlcValue(plcId, config.slotTagId);
-          slot = vSlot !== null && vSlot !== undefined && vSlot !== '' ? Number(vSlot) : null;
+          if (vSlot !== null && vSlot !== undefined && vSlot !== '') {
+            const num = Number(vSlot);
+            if (!isNaN(num) && num > 0) {
+              slot = num;
+            }
+          }
         } catch {
           slot = null;
         }
-      }
-      // 2. data kümesinden slot bilgisi kontrolü
-      if (!slot && data) {
-        const dataSlot = Number(data['tag_' + config.slotTagId] ?? data['slot'] ?? data['slotNumber'] ?? data['position'] ?? data['slot_number']);
-        if (dataSlot && !isNaN(dataSlot)) {
-          slot = dataSlot;
-        }
-      }
-      // 3. Slot belirlenmediyse arabadaki ilk boş slota otomatik atanır
-      if (!slot || isNaN(slot)) {
-        const trolley = getTrolley(ctx.trolleyId);
-        if (trolley) {
-          slot = nextFreeSlot(trolley.id, trolley.slot_count);
-        }
-      }
-      // 4. Bulunan slot numarası ürüne atanır
-      if (slot && !isNaN(slot)) {
-        try {
-          assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
-          console.log(`[station.engine] ${product.product_id} ürünü ${ctx.trolleyCode} arabasının #${slot} slotuna başarıyla atandı.`);
-        } catch (err) {
-          console.error(`[station.engine] Slot atama hatası:`, err);
+
+        if (!slot) {
+          addAlarm({
+            productId: product.product_id,
+            trolleyId: ctx.trolleyId,
+            stationId,
+            severity: 'warning',
+            message: `${station.name}: PLC'den slot numarası okunamadı veya geçersiz (tag #${config.slotTagId}). Slot ataması yapılamadı.`,
+          });
+        } else {
+          try {
+            assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
+            console.log(`[station.engine] ${product.product_id} ürünü ${ctx.trolleyCode} arabasının #${slot} slotuna başarıyla atandı.`);
+          } catch (err) {
+            console.error(`[station.engine] Slot atama hatası:`, err);
+            addAlarm({
+              productId: product.product_id,
+              trolleyId: ctx.trolleyId,
+              stationId,
+              severity: 'warning',
+              message: `${station.name}: #${slot} slotuna araba ataması yapılamadı: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
         }
       }
     }
