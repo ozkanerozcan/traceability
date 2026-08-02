@@ -120,7 +120,10 @@ function tryAdvance(product: ProductRow, station: StationRow): boolean {
 // ─── Capability işleyicileri ────────────────────────────────────────────────
 
 async function handleQrGenerate(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  const productId = generateProductId();
+  const productId = input.productId?.trim() ? input.productId.trim() : generateProductId();
+  if (getProductByProductId(productId)) {
+    throw new StationError('VALIDATION', `Bu Shell ID zaten kullanılmaktadır: ${productId}`);
+  }
   const product = createProduct({ productId, routeId: 1, qrContent: productId });
   const { path, size } = qrToSvgPath(productId);
   addStationRecord({

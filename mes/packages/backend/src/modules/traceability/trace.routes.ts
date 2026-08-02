@@ -10,6 +10,7 @@ import {
   deleteProduct,
   deleteStation,
   deleteTrolley,
+  generateProductId,
   getProduct,
   getProductByProductId,
   getProductRecords,
@@ -402,6 +403,10 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       return handleStationError(reply, err);
     }
   });
+
+  app.get('/next-shell-id', async () => ({
+    shellId: generateProductId(),
+  }));
 
   // ─── QR etiket ───────────────────────────────────────────────────────────
   app.get<{ Params: { productId: string } }>('/qr/:productId', async (request, reply) => {

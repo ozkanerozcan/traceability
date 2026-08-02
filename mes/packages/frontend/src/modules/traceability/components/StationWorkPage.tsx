@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CheckCircle2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Printer, QrCode as QrIcon, RefreshCw } from 'lucide-react';
 import { Alert, Badge, Button, Input, Modal, Table, useToast } from '../../../core/components/common';
 import { traceService, type LastCapture, type QrHistoryItem, type ScanInput, type Station, type TrolleyContext, type TrolleyProductItem } from '../services/trace.service';
 import { tagService, type PlcTag } from '../../plc-gateway/services/plc.service';
@@ -31,10 +31,13 @@ export default function StationWorkPage() {
   // plc_acquire
   const [plcTags, setPlcTags] = useState<PlcTag[]>([]);
 
-  // QR etiket önizleme + geçmiş
+  // QR etiket önizleme + geçmiş + oluşturma modalı
   const [qrLabel, setQrLabel] = useState<QrLabelData | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [history, setHistory] = useState<QrHistoryItem[]>([]);
+  const [shellModalOpen, setShellModalOpen] = useState(false);
+  const [customShellId, setCustomShellId] = useState('');
+  const [shellError, setShellError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -71,6 +74,44 @@ export default function StationWorkPage() {
     if (has('qr_generate')) void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [station]);
+
+  // ─── QR üretme ön hazırlığı ───
+  const handlePrepareQrGeneration = async () => {
+    setBusy(true);
+    setShellError(null);
+    try {
+      const { shellId } = await traceService.getNextShellId();
+      setCustomShellId(shellId);
+      setShellModalOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateQrCode = async () => {
+    const cleanId = customShellId.trim();
+    if (!cleanId || !station) return;
+    setBusy(true);
+    setShellError(null);
+    try {
+      const res = await traceService.scan({ stationKey: station.key, productId: cleanId });
+      if (res.ok && res.qrLabel) {
+        setShellModalOpen(false);
+        setQrLabel(res.qrLabel);
+        setQrModalOpen(true);
+        toast.success(t('trace.qrGenerated', { id: cleanId }));
+        void loadHistory();
+      } else if (res.message) {
+        setShellError(res.message);
+      }
+    } catch (err) {
+      setShellError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ─── trolley_read: kayıtlı arabayı geri yükle ───
   useEffect(() => {
@@ -184,7 +225,7 @@ export default function StationWorkPage() {
           </div>
         </div>
 
-        {/* Aktif Araba Kontrolü */}
+        {/* Aktif Araba Kontrolü (varsa) */}
         {trolleyCtx && (
           <div className="flex items-center gap-3">
             <div>
@@ -209,9 +250,84 @@ export default function StationWorkPage() {
         </Alert>
       )}
 
-      {/* ─── Simülasyon Gövdesi (%100 Fit, Zero Scroll) ─── */}
+      {/* ─── Simülasyon Gövdesi ─── */}
       <div className="trace-sim-body">
-        {!trolleyCtx ? (
+        {has('qr_generate') && !has('trolley_read') ? (
+          <div style={{ width: '100%', maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+            {/* QR Kod Üretim Ana Kartı */}
+            <div
+              style={{
+                background: 'var(--bg-card)',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-6)',
+                border: '1px solid var(--border-color)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 'var(--space-4)',
+              }}
+            >
+              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(253, 201, 84, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--amber)' }}>
+                <QrIcon size={32} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, margin: '0 0 6px 0' }}>
+                  {t('trace.qrGeneratorTitle', { defaultValue: 'Shell ID & QR Kod Üretimi' })}
+                </h2>
+                <p className="text-muted" style={{ margin: 0, fontSize: 'var(--font-size-sm)', maxWidth: 520 }}>
+                  {t('trace.qrGeneratorHint', { defaultValue: 'Sistem tarafından önerilen Shell ID\'yi kullanabilir veya kendi özel Shell ID\'nizi belirleyebilirsiniz.' })}
+                </p>
+              </div>
+              <Button className="btn-lg" onClick={() => void handlePrepareQrGeneration()} disabled={busy}>
+                <QrIcon size={20} /> {t('trace.generateQr', { defaultValue: 'QR Kod Üret' })}
+              </Button>
+            </div>
+
+            {/* Son Üretilen QR Kodlar Izgarası */}
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, marginBottom: 'var(--space-3)' }}>
+                📜 {t('trace.qrHistory', { defaultValue: 'Son Üretilen QR Kodlar' })}
+              </h3>
+              {history.length === 0 ? (
+                <Alert variant="info">{t('trace.noQrHistory', { defaultValue: 'Henüz üretilmiş QR kod bulunmamaktadır.' })}</Alert>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
+                  {history.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: 'var(--space-3)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
+                      <QrCode svgPath={item.svgPath} size={70} />
+                      <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', textAlign: 'center' }}>
+                        {item.productId}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        className="btn-sm w-full"
+                        onClick={() => {
+                          setQrLabel({ productId: item.productId, svgPath: item.svgPath, size: item.size });
+                          setQrModalOpen(true);
+                        }}
+                      >
+                        <Printer size={14} /> {t('trace.reprint', { defaultValue: 'Önizle / Yazdır' })}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : !trolleyCtx ? (
           <div style={{ maxWidth: 420, margin: 'auto', width: '100%' }}>
             <h3 style={{ marginBottom: 'var(--space-4)', textAlign: 'center' }}>{t('trace.confirmTrolleyFirst')}</h3>
             <Input
@@ -255,6 +371,43 @@ export default function StationWorkPage() {
           </div>
         )}
       </div>
+
+      {/* ─── Shell ID Oluştur Pop-up Modalı ─── */}
+      {shellModalOpen && (
+        <Modal
+          open={shellModalOpen}
+          title={t('trace.createShellTitle', { defaultValue: 'Yeni Shell ID / QR Kod Oluştur' })}
+          onClose={() => setShellModalOpen(false)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {shellError && <Alert variant="danger">{shellError}</Alert>}
+            <Input
+              label={t('trace.shellIdLabel', { defaultValue: 'Shell ID / QR Kod İçeriği' })}
+              value={customShellId}
+              onChange={(e) => {
+                setCustomShellId(e.target.value);
+                setShellError(null);
+              }}
+              placeholder="SH-20260802-0001"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleCreateQrCode();
+              }}
+            />
+            <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>
+              💡 {t('trace.shellIdUniqueHint', { defaultValue: 'Shell ID sistemde benzersiz (unique) olmalıdır. Dilerseniz otomatik üretilen koda dokunmadan "Oluştur & Yazdır" butonuna basabilirsiniz.' })}
+            </p>
+            <div className="flex justify-end gap-2 mt-2">
+              <Button variant="ghost" onClick={() => setShellModalOpen(false)} disabled={busy}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={() => void handleCreateQrCode()} disabled={busy || !customShellId.trim()}>
+                <CheckCircle2 size={16} /> {t('trace.createAndPrint', { defaultValue: 'Oluştur & Yazdır' })}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ─── Slot Detay Pop-up Modalı ─── */}
       {selectedSlot && (

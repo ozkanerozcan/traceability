@@ -213,6 +213,9 @@ export const traceService = {
   getQrHistory: (limit = 24) =>
     api.get<{ items: QrHistoryItem[] }>(`/api/trace/qr-history?limit=${limit}`),
 
+  // Önerilen Shell ID
+  getNextShellId: () => api.get<{ shellId: string }>('/api/trace/next-shell-id'),
+
   // Parti numaraları
   listBatches: (kind?: string) =>
     api.get<{ batches: { id: number; batch_no: string; kind: string; description: string | null }[] }>(
