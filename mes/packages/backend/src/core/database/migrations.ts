@@ -541,58 +541,67 @@ const migrations: Migration[] = [
     name: 'traceability_simplified_2tables',
     up: (db) => {
       db.exec(`
-        CREATE TABLE trace_products_new (
+        -- Physical 2-table model: trolleys & shells
+        CREATE TABLE IF NOT EXISTS trolleys (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            trolley_id  TEXT UNIQUE NOT NULL,
+            capacity    INTEGER NOT NULL DEFAULT 20,
+            is_active   INTEGER DEFAULT 1,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        INSERT OR IGNORE INTO trolleys (id, trolley_id, capacity, is_active, created_at)
+        SELECT id, code, slot_count, is_active, created_at FROM trace_trolleys;
+
+        CREATE TABLE IF NOT EXISTS shells (
             id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id         TEXT UNIQUE NOT NULL,
+            shell_id           TEXT UNIQUE NOT NULL,
+            trolley_id         TEXT REFERENCES trolleys(trolley_id),
+            slot_number        INTEGER,
             status             TEXT NOT NULL DEFAULT 'in_progress'
                                CHECK(status IN ('in_progress','completed','rejected')),
             route_id           INTEGER REFERENCES trace_routes(id),
             current_step_index INTEGER NOT NULL DEFAULT 0,
             qr_content         TEXT,
-            trolley_code       TEXT,
-            slot_number        INTEGER,
-            plc_data           TEXT NOT NULL DEFAULT '{}',
             history            TEXT NOT NULL DEFAULT '[]',
             created_at         TEXT DEFAULT (datetime('now')),
             updated_at         TEXT DEFAULT (datetime('now'))
         );
 
-        INSERT INTO trace_products_new
-          (id, product_id, status, route_id, current_step_index, qr_content, created_at, updated_at)
-         SELECT id, product_id, status, route_id, current_step_index, qr_content, created_at, updated_at
-         FROM trace_products;
+        INSERT OR IGNORE INTO shells (id, shell_id, status, route_id, current_step_index, qr_content, created_at, updated_at)
+        SELECT id, product_id, status, route_id, current_step_index, qr_content, created_at, updated_at FROM trace_products;
 
-        -- Aktif slot bilgisini aktar (varsa)
-        UPDATE trace_products_new
-        SET trolley_code = (
+        -- Migrasyon: eski slot ilişkilerini aktar (varsa)
+        UPDATE shells
+        SET trolley_id = (
             SELECT t.code FROM trace_trolley_slots s JOIN trace_trolleys t ON t.id = s.trolley_id
-            WHERE s.product_id = trace_products_new.product_id AND s.released_at IS NULL LIMIT 1
+            WHERE s.product_id = shells.shell_id AND s.released_at IS NULL LIMIT 1
         ),
         slot_number = (
             SELECT s.slot_number FROM trace_trolley_slots s
-            WHERE s.product_id = trace_products_new.product_id AND s.released_at IS NULL LIMIT 1
+            WHERE s.product_id = shells.shell_id AND s.released_at IS NULL LIMIT 1
         )
         WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trace_trolley_slots');
 
-        DROP TABLE trace_products;
-        ALTER TABLE trace_products_new RENAME TO trace_products;
-
-        CREATE INDEX IF NOT EXISTS idx_trace_products_status ON trace_products(status);
-        CREATE INDEX IF NOT EXISTS idx_trace_products_trolley ON trace_products(trolley_code);
-
-        -- Gereksiz karmaşık ilişki tablolarını kaldır
+        -- Eski tabloları temizle
         DROP TABLE IF EXISTS trace_trolley_slots;
         DROP TABLE IF EXISTS trace_station_records;
         DROP TABLE IF EXISTS trace_qr_logs;
+        DROP TABLE IF EXISTS trace_products;
+        DROP TABLE IF EXISTS trace_trolleys;
 
-        -- Kolay sorgulama için 'shells' ve 'trolleys' görünümleri
-        CREATE VIEW IF NOT EXISTS shells AS
-        SELECT id, product_id AS shell_id, trolley_code, slot_number, status, current_step_index, plc_data, history, created_at, updated_at
-        FROM trace_products;
+        -- İndeksler
+        CREATE INDEX IF NOT EXISTS idx_shells_status ON shells(status);
+        CREATE INDEX IF NOT EXISTS idx_shells_trolley ON shells(trolley_id);
 
-        CREATE VIEW IF NOT EXISTS trolleys AS
-        SELECT id, code AS trolley_code, slot_count AS capacity, is_active, created_at
-        FROM trace_trolleys;
+        -- Geriye dönük sorgu uyumluluğu için görünümler (VIEW)
+        CREATE VIEW IF NOT EXISTS trace_products AS
+        SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, '' AS plc_data, history, created_at, updated_at
+        FROM shells;
+
+        CREATE VIEW IF NOT EXISTS trace_trolleys AS
+        SELECT id, trolley_id AS code, capacity AS slot_count, is_active, created_at
+        FROM trolleys;
       `);
     },
   },
