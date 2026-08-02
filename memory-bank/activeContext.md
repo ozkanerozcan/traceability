@@ -216,6 +216,10 @@
   - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache). DB'de artık tek `done` kaydı.
   - **Değişen Dosyalar:** `station.engine.ts`, `StationWorkPage.tsx`.
 
+- **2026-08-02 (Araba Slot Düzeni 4x5 Yapılandırılması):**
+  - **Görsel Düzen:** Araba slot ızgarası (`trace-sim-grid`) 5 sütun x 4 satırdan **4 sütun x 5 satır (4x5)** yapısına güncellendi.
+  - **Değişen Dosyalar:** `trace.css`.
+
 
 
 
