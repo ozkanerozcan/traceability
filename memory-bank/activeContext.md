@@ -204,6 +204,10 @@
   - **Hero Buton & Kart Mimarisi:** "QR KOD ÜRET" aksiyon butonu büyütüldü ve parlak amber gradyanı eklendi. Önceki QR kodların kart tasarımı durum rozeti, üretim saati ve geniş QR önizleme alanı ile yenilendi.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `trace.css`, `walkthrough.md`.
 
+- **2026-08-02 (Önceki QR Kodlar Kartında Etiket Görünümü Eşitlemesi):**
+  - **Düzeltme:** "Önceki QR Kodlar" kartlarının içinde yer alan QR ve Shell ID görünümü, yazdırma pop-up'ındaki (`QrLabelModal`) etiket görünümü (`trace-qr-print`) ile birebir aynı etiket konteynerini kullanacak şekilde güncellendi.
+  - **Değişen Dosyalar:** `StationWorkPage.tsx`, `QrLabelModal.tsx`, `trace.css`.
+
 
 
 
