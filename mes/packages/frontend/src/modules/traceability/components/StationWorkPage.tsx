@@ -445,16 +445,19 @@ export default function StationWorkPage() {
                   <span style={{ color: 'var(--accent)' }}>⚡</span> {t('trace.plcDataTitle')}
                 </div>
                 {(() => {
-                  const plcItems: { name: string; value: unknown; station: string }[] = [];
+                  // Her tag yalnızca BİR KEZ gösterilir — aynı tag için birden
+                  // fazla kayıt varsa en güncel (son) kayıt esas alınır.
+                  const latest = new Map<string, { name: string; value: unknown; station: string }>();
                   selectedSlot.product.records.forEach((r) => {
                     if (!r.data) return;
                     Object.entries(r.data).forEach(([k, v]) => {
                       if (v === null || v === undefined) return;
                       const tagId = Number(k.replace('tag_', ''));
                       const name = tagId ? tagName(tagId) : k;
-                      plcItems.push({ name, value: v, station: r.stationName });
+                      latest.set(k, { name, value: v, station: r.stationName });
                     });
                   });
+                  const plcItems = [...latest.values()];
 
                   if (plcItems.length === 0) {
                     return <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noPlcDataForSlot')}</p>;

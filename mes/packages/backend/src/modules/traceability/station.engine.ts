@@ -328,6 +328,22 @@ export async function capturePlcData(stationId: number): Promise<void> {
     return;
   }
 
+  // ─── Yeniden tetik koruması (idempotency) ───
+  // Aynı ürün bu istasyonda zaten 'done' kaydına sahipse veriyi ikinci kez
+  // yazma — aynı veri aynı shell içinde yalnızca BİR KEZ bulunmalıdır.
+  // (Trigger'ın handshake tamamlanmadan yeniden yükselmesi durumunda oluşan
+  // mükerrer 'done' kayıtlarını engeller.) Yine de handshake gönderilir.
+  const pendingTargets = targets.filter((p) => !hasRecord(p.product_id, stationId, 'done'));
+  if (pendingTargets.length === 0) {
+    console.warn(
+      `[station.engine] ${station.name}: trigger yeniden geldi ancak hedef ürün(ler) zaten işlendi — mükerrer kayıt atlandı (${targets.map((t) => t.product_id).join(', ')})`
+    );
+    await acknowledge();
+    return;
+  }
+  targets.length = 0;
+  targets.push(...pendingTargets);
+
   // ─── Veri tag'lerini taze oku ───
   const data: Record<string, unknown> = {};
   if (config.dataTagIds?.length) {

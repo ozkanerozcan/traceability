@@ -208,6 +208,14 @@
   - **Düzeltme:** "Önceki QR Kodlar" kartlarının içinde yer alan QR ve Shell ID görünümü, yazdırma pop-up'ındaki (`QrLabelModal`) etiket görünümü (`trace-qr-print`) ile birebir aynı etiket konteynerini kullanacak şekilde güncellendi.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `QrLabelModal.tsx`, `trace.css`.
 
+- **2026-08-02 (Slot Detay Pop-up'ı — Mükerrer PLC Verisi Düzeltmesi):**
+  - **Sorun:** Slot #1 Detayları pop-up'ında "PLC'den Okunan Canlı Veriler" bölümünde aynı tag (örn. Robot Funnel Screw Torque) iki kez görünüyordu. Kök neden: `capturePlcData`'da idempotency yoktu — trigger handshake tamamlanmadan yeniden yükselince aynı ürüne aynı istasyonda ikinci bir `done` kaydı yazılıyordu (SH-20260802-0001'de 2 adet `Araba Atama/done` kaydı).
+  - **Backend düzeltmesi (`station.engine.ts`):** `capturePlcData`'ya yeniden tetik koruması eklendi — hedef ürün bu istasyonda zaten `done` kaydına sahipse veri yazılmaz (mükerrer kayıt atlanır), yalnızca handshake gönderilir ve uyarı loglanır. `hasRecord(productId, stationId, 'done')` filtresi ile.
+  - **Frontend düzeltmesi (`StationWorkPage.tsx`):** Pop-up'taki PLC veri listesi artık tag başına TEK kart gösterir — aynı `tag_*` anahtarı için birden fazla kayıt varsa en güncel (son) kayıt esas alınır (`Map` ile dedupe).
+  - **Veri temizliği:** SH-20260802-0001 history'sindeki mükerrer kayıt silindi (2 → 1 kayıt).
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache). DB'de artık tek `done` kaydı.
+  - **Değişen Dosyalar:** `station.engine.ts`, `StationWorkPage.tsx`.
+
 
 
 
