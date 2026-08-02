@@ -183,6 +183,11 @@
   - **Dokümantasyon Artifact'ı:** Projenin veritabanı mimarisi, 23 tablonun detayları, alan tipleri ve tablolar arası ilişkileri Mermaid ER Diyagramı ile `database_schema_documentation.md` olarak dokümante edildi. Proje kaynak kodunda hiçbir değişiklik yapılmadı.
   - **Shell ID Ürün Kayıtları Rehberi:** Kullanıcının sorusu üzerine belirli bir Shell ID (`product_id`) ile ürün kayıtlarını getirmek için REST API (`GET /api/traceability/products/:productId`), veritabanı SQL birleştirme sorguları ve backend servis metodları (`getProductByProductId`, `getProductRecords`) kullanım kılavuzu sağlandı.
 
+- **2026-08-02 (Nihai 2-Tablolu Sade Mimarisi — `trolleys` & `shells`):**
+  - **Fiziksel Tablo Yapısı:** Migration 6 ile veritabanı `trolleys` (`trolley_id`, `capacity`) ve `shells` (`shell_id`, `trolley_id`, `slot_number`, `status`, `history`) fiziki tablolarına geçirildi.
+  - **Veri Tekrarı Temizliği:** `plc_data` kolonu kaldırılarak tüm PLC ölçümleri ve istasyon onayları tekil `history` JSON dizisinde birleştirildi. `trace.service.ts` metodları güncellendi.
+  - **Değişen Dosyalar:** `migrations.ts`, `trace.service.ts`, `walkthrough.md`.
+
 
 
 

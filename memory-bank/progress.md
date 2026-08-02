@@ -142,6 +142,7 @@
 - [x] **Hızlı Ürün Ekleme & QR Yazdırma:** Ürünler sayfasına (`ProductsPage.tsx`) **"+ Ürün Ekle"** butonu eklendi. QR Üretim İstasyonu ile birebir aynı motor (`createNewProduct`) kullanılarak ürün üretilip anında gerçek mm boyutlu `QrLabelModal` yazdırma pop-up'ı otomatik açılıyor.
 - [x] **Çeviri ve Geçmiş PLC Verisi Düzeltmeleri:** `tr.json` ve `en.json` içine eksik `activeTrolley`, `plcDataTitle`, `stationHistoryTitle` ve `timestamp` çeviri anahtarları eklendi. Backend `getTrolleyProductItems` servisinde veritabanı `data` sütununun okunması ve slot detay pop-up'ında geçmiş tork / PLC verilerinin eksiksiz görüntülenmesi sağlandı.
 - [x] **Veritabanı Mimari Dokümantasyonu:** Veritabanının 23 tablosu ve aralarındaki ilişkiler Mermaid ER Diyagramı ile `database_schema_documentation.md` dosyasında tam dokümante edildi. Shell ID bazlı sorgulama rehberi hazırlandı.
+- [x] **Nihai 2-Tablolu Sade Mimarisi (`trolleys` & `shells`):** Veritabanı `trolleys` (`trolley_id`, `capacity`) ve `shells` (`shell_id`, `trolley_id`, `slot_number`, `status`, `history`) fiziki tablolarına geçirildi. `plc_data` kolonu kaldırılarak tüm PLC ölçümleri ve istasyon verileri tekil `history` JSON dizisinde birleştirildi.
 
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
