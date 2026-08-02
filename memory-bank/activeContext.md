@@ -196,7 +196,7 @@
 
 - **2026-08-02 (Veritabanı Migrasyonu Düzeltmesi — Migration 7):**
   - **Kök Neden:** Mevcut veritabanı dosyalarında Migration 6 daha önceden uygulandığı için `shells` tablosu üzerinde `route_id` sütunu bulunmayan eski bir VIEW kalmıştı. Bu durum `no such column: route_id` hatasına yol açıyordu.
-  - **Çözüm:** Migration 7 (`traceability_shells_trolleys_tables`) eklendi. `shells_new` ve `trolleys_new` fiziki tabloları üzerinden `route_id` dahil tüm sütunlar yeniden sağlamlaştırıldı ve veriler eksiksiz aktarıldı.
+  - **Çözüm:** Migration 7 (`traceability_shells_trolleys_tables`) eklendi. SQLite üzerinde bir nesnenin tablo mu yoksa görünüm (view) mü olduğu `sqlite_master` üzerinden dinamik olarak kontrol edilerek `dropObject` fonksiyonuyla güvenle silindi ve `route_id` içeren fiziki tablolar oluşturuldu.
   - **Değişen Dosyalar:** `migrations.ts`.
 
 
