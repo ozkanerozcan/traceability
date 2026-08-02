@@ -225,6 +225,11 @@
   - **Düzeltme (`station.engine.ts`):** İstasyonda aktif araba (`ctx.trolleyId`) onaylanmışsa, trigger çalıştığında hedef ürün `assignTrolleySlot(ctx.trolleyId, slot, productId)` ile anında araba slotuna atanacak şekilde genelleştirildi. `config.slotTagId`, `data` tag'i veya `nextFreeSlot` sırasıyla slot tespiti yapılır. Hedef ürün tespitine istasyon aktif ürünü ve son in_progress ürün fallback'leri eklendi.
   - **Değişen Dosyalar:** `station.engine.ts`.
 
+- **2026-08-02 (Katı Slot Tag Zorumluluğu & Hata Alarmı Entegrasyonu):**
+  - **Kullanıcı Talimatı:** Otomatik slot belirleme ve fallback'ler kaldırıldı. Araba slot numarası **YALNIZCA PLC `slotTagId` tag'inden** okunmalıdır.
+  - **Kural Entegrasyonu (`station.engine.ts`):** `config.slotTagId` tanımlanmamışsa veya PLC'den okunan slot numarası geçersiz/null dönüyorsa otomatik slot ataması YAPILMAZ; sisteme net açıklayıcı bir uyarı alarmı (`addAlarm`) eklenir.
+  - **Değişen Dosyalar:** `station.engine.ts`.
+
 
 
 
