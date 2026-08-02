@@ -609,14 +609,20 @@ const migrations: Migration[] = [
     id: 7,
     name: 'traceability_shells_trolleys_tables',
     up: (db) => {
-      db.exec(`
-        -- Eski görünümleri temizle
-        DROP VIEW IF EXISTS shells;
-        DROP VIEW IF EXISTS trolleys;
-        DROP VIEW IF EXISTS trace_products;
-        DROP VIEW IF EXISTS trace_trolleys;
+      // Güvenli silme: nesne VIEW ise DROP VIEW, TABLE ise DROP TABLE çalıştırır
+      const dropObject = (name: string) => {
+        const row = db.prepare(`SELECT type FROM sqlite_master WHERE name = ?`).get(name) as { type: string } | undefined;
+        if (row) {
+          if (row.type === 'view') {
+            db.exec(`DROP VIEW IF EXISTS "${name}"`);
+          } else if (row.type === 'table') {
+            db.exec(`DROP TABLE IF EXISTS "${name}"`);
+          }
+        }
+      };
 
-        -- 1. Shells tablosunu tüm kolonları ile sağlamlaştır
+      // 1. Yeni shells_new tablosunu oluştur
+      db.exec(`
         CREATE TABLE IF NOT EXISTS shells_new (
             id                 INTEGER PRIMARY KEY AUTOINCREMENT,
             shell_id           TEXT UNIQUE NOT NULL,
@@ -631,20 +637,48 @@ const migrations: Migration[] = [
             created_at         TEXT DEFAULT (datetime('now')),
             updated_at         TEXT DEFAULT (datetime('now'))
         );
+      `);
 
-        -- Varsa trace_products veya eski shells verilerini aktar
-        INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
-        SELECT id, product_id, status, route_id, current_step_index, qr_content, trolley_code, slot_number, history, created_at, updated_at
-        FROM trace_products WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trace_products');
+      // Varsa eski trace_products veya shells verilerini güvenle aktar
+      const hasTraceProducts = db.prepare(`SELECT type FROM sqlite_master WHERE name = 'trace_products'`).get() as { type: string } | undefined;
+      if (hasTraceProducts && hasTraceProducts.type === 'table') {
+        db.exec(`
+          INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
+          SELECT id, product_id, status, route_id, current_step_index, qr_content, trolley_code, slot_number, history, created_at, updated_at
+          FROM trace_products;
+        `);
+      }
 
-        INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
-        SELECT id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at
-        FROM shells WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='shells');
+      const hasShells = db.prepare(`SELECT type FROM sqlite_master WHERE name = 'shells'`).get() as { type: string } | undefined;
+      if (hasShells && hasShells.type === 'table') {
+        const cols = db.prepare(`PRAGMA table_info(shells)`).all() as { name: string }[];
+        const colNames = cols.map((c) => c.name);
+        const routeIdCol = colNames.includes('route_id') ? 'route_id' : 'NULL AS route_id';
+        const shellIdCol = colNames.includes('shell_id') ? 'shell_id' : colNames.includes('product_id') ? 'product_id' : 'NULL AS shell_id';
+        const trolleyIdCol = colNames.includes('trolley_id') ? 'trolley_id' : colNames.includes('trolley_code') ? 'trolley_code' : 'NULL AS trolley_id';
+        const historyCol = colNames.includes('history') ? 'history' : "'[]' AS history";
 
-        DROP TABLE IF EXISTS shells;
-        ALTER TABLE shells_new RENAME TO shells;
+        db.exec(`
+          INSERT OR IGNORE INTO shells_new (id, shell_id, status, route_id, current_step_index, qr_content, trolley_id, slot_number, history, created_at, updated_at)
+          SELECT id, ${shellIdCol}, status, ${routeIdCol}, current_step_index, qr_content, ${trolleyIdCol}, slot_number, ${historyCol}, created_at, updated_at
+          FROM shells;
+        `);
+      }
 
-        -- 2. Trolleys tablosunu sağlamlaştır
+      // Eski nesneleri type kontrolü ile güvenle kaldır
+      dropObject('shells');
+      dropObject('trace_products');
+      dropObject('trolleys');
+      dropObject('trace_trolleys');
+      dropObject('trace_trolley_slots');
+      dropObject('trace_station_records');
+      dropObject('trace_qr_logs');
+
+      // shells_new -> shells olarak adlandır
+      db.exec(`ALTER TABLE shells_new RENAME TO shells;`);
+
+      // 2. Trolleys tablosunu oluştur
+      db.exec(`
         CREATE TABLE IF NOT EXISTS trolleys_new (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             trolley_id  TEXT UNIQUE NOT NULL,
@@ -652,28 +686,14 @@ const migrations: Migration[] = [
             is_active   INTEGER DEFAULT 1,
             created_at  TEXT DEFAULT (datetime('now'))
         );
+      `);
+      db.exec(`ALTER TABLE trolleys_new RENAME TO trolleys;`);
 
-        INSERT OR IGNORE INTO trolleys_new (id, trolley_id, capacity, is_active, created_at)
-        SELECT id, code, slot_count, is_active, created_at FROM trace_trolleys WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trace_trolleys');
-
-        INSERT OR IGNORE INTO trolleys_new (id, trolley_id, capacity, is_active, created_at)
-        SELECT id, trolley_id, capacity, is_active, created_at FROM trolleys WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='trolleys');
-
-        DROP TABLE IF EXISTS trolleys;
-        ALTER TABLE trolleys_new RENAME TO trolleys;
-
-        -- Eski ilişki tablolarını temizle
-        DROP TABLE IF EXISTS trace_trolley_slots;
-        DROP TABLE IF EXISTS trace_station_records;
-        DROP TABLE IF EXISTS trace_qr_logs;
-        DROP TABLE IF EXISTS trace_products;
-        DROP TABLE IF EXISTS trace_trolleys;
-
-        -- İndeksler
+      // 3. İndeksler ve Görünümler
+      db.exec(`
         CREATE INDEX IF NOT EXISTS idx_shells_status ON shells(status);
         CREATE INDEX IF NOT EXISTS idx_shells_trolley ON shells(trolley_id);
 
-        -- Görünümler (VIEW)
         CREATE VIEW IF NOT EXISTS trace_products AS
         SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, '' AS plc_data, history, created_at, updated_at
         FROM shells;
