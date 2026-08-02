@@ -287,7 +287,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
       const systemRowSize = Number(getSetting('row_size')) || 4;
       const rowSize = config.rowSize ?? systemRowSize;
       if (config.trolleyMatchMode === 'row' && config.rowTagId) {
-        // Satır bazlı: PLC'den satır numarası oku (1. satır = 1 veya 0 → 1..4 slotlar; 2. satır = 2 → 5..8 slotlar)
+        // Satır bazlı: PLC'den satır numarası oku
         let rowNum = 0;
         try {
           rowNum = Number(await readPlcValue(plcId, config.rowTagId)) || 0;
@@ -318,6 +318,21 @@ export async function capturePlcData(stationId: number): Promise<void> {
     }
   }
 
+  // Fallback: Hedef ürün henüz bulunamadıysa, istasyonun aktif ürününü veya üretilmiş son in_progress ürünü al
+  if (targets.length === 0) {
+    if (ctx.productId) {
+      const p = getProductByProductId(ctx.productId);
+      if (p) targets.push(p);
+    } else {
+      const db = getDb();
+      const row = db.prepare(`SELECT shell_id AS product_id FROM shells WHERE status = 'in_progress' ORDER BY id DESC LIMIT 1`).get() as { product_id: string } | undefined;
+      if (row) {
+        const p = getProductByProductId(row.product_id);
+        if (p) targets.push(p);
+      }
+    }
+  }
+
   if (targets.length === 0) {
     addAlarm({
       stationId,
@@ -329,10 +344,6 @@ export async function capturePlcData(stationId: number): Promise<void> {
   }
 
   // ─── Yeniden tetik koruması (idempotency) ───
-  // Aynı ürün bu istasyonda zaten 'done' kaydına sahipse veriyi ikinci kez
-  // yazma — aynı veri aynı shell içinde yalnızca BİR KEZ bulunmalıdır.
-  // (Trigger'ın handshake tamamlanmadan yeniden yükselmesi durumunda oluşan
-  // mükerrer 'done' kayıtlarını engeller.) Yine de handshake gönderilir.
   const pendingTargets = targets.filter((p) => !hasRecord(p.product_id, stationId, 'done'));
   if (pendingTargets.length === 0) {
     console.warn(
@@ -356,30 +367,41 @@ export async function capturePlcData(stationId: number): Promise<void> {
     }
   }
 
-  // ─── Hedef ürün(ler)e veriyi yaz + ilerlet ───
+  // ─── Hedef ürün(ler)e veriyi yaz + araba slotuna ata + ilerlet ───
   for (const product of targets) {
-    // plc modunda aktif araba varsa slot numarasına ata (slotTagId PLC'den okunur)
-    let slot: number | null = null;
-    if (source === 'plc' && ctx.trolleyId) {
+    // İstasyonda onaylı aktif araba (trolley) varsa ürünü slot numarasına bağla
+    if (ctx.trolleyId) {
+      let slot: number | null = null;
+      // 1. PLC'den slot tag'i oku (varsa)
       if (config.slotTagId) {
         try {
           const vSlot = await readPlcValue(plcId, config.slotTagId);
-          slot = vSlot !== null ? Number(vSlot) : null;
+          slot = vSlot !== null && vSlot !== undefined && vSlot !== '' ? Number(vSlot) : null;
         } catch {
           slot = null;
         }
       }
-      if (!slot) {
+      // 2. data kümesinden slot bilgisi kontrolü
+      if (!slot && data) {
+        const dataSlot = Number(data['tag_' + config.slotTagId] ?? data['slot'] ?? data['slotNumber'] ?? data['position'] ?? data['slot_number']);
+        if (dataSlot && !isNaN(dataSlot)) {
+          slot = dataSlot;
+        }
+      }
+      // 3. Slot belirlenmediyse arabadaki ilk boş slota otomatik atanır
+      if (!slot || isNaN(slot)) {
         const trolley = getTrolley(ctx.trolleyId);
         if (trolley) {
           slot = nextFreeSlot(trolley.id, trolley.slot_count);
         }
       }
-      if (slot) {
+      // 4. Bulunan slot numarası ürüne atanır
+      if (slot && !isNaN(slot)) {
         try {
           assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
-        } catch {
-          // slot dolu olabilir — kaydı yine de yaz
+          console.log(`[station.engine] ${product.product_id} ürünü ${ctx.trolleyCode} arabasının #${slot} slotuna başarıyla atandı.`);
+        } catch (err) {
+          console.error(`[station.engine] Slot atama hatası:`, err);
         }
       }
     }
