@@ -220,6 +220,11 @@
   - **Görsel Düzen:** Araba slot ızgarası (`trace-sim-grid`) 5 sütun x 4 satırdan **4 sütun x 5 satır (4x5)** yapısına güncellendi.
   - **Değişen Dosyalar:** `trace.css`.
 
+- **2026-08-02 (PLC Trigger Araba Slot Ataması Düzeltmesi):**
+  - **Kök Neden:** PLC trigger (`capturePlcData`) tetiklendiğinde araba slot ataması (`assignTrolleySlot`) koşulu yanlışlıkla yalnızca `source === 'plc'` durumuna kısıtlanmıştı. Konfigürasyonu `scan` olan istasyonlarda veya varsayılan ayarlarda trigger gelse dahi ürün araba slotuna atanmıyordu. Ayrıca hedef ürün tespiti PLC'den okuma başarısız olduğunda fallback yapmıyordu.
+  - **Düzeltme (`station.engine.ts`):** İstasyonda aktif araba (`ctx.trolleyId`) onaylanmışsa, trigger çalıştığında hedef ürün `assignTrolleySlot(ctx.trolleyId, slot, productId)` ile anında araba slotuna atanacak şekilde genelleştirildi. `config.slotTagId`, `data` tag'i veya `nextFreeSlot` sırasıyla slot tespiti yapılır. Hedef ürün tespitine istasyon aktif ürünü ve son in_progress ürün fallback'leri eklendi.
+  - **Değişen Dosyalar:** `station.engine.ts`.
+
 
 
 
