@@ -32,6 +32,12 @@ export interface ProductRow {
   route_id: number | null;
   current_step_index: number;
   qr_content: string | null;
+  trolley_code: string | null;
+  slot_number: number | null;
+  plc_data: string;
+  history: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TrolleyRow {
@@ -259,7 +265,7 @@ export function deleteTrolley(id: number): boolean {
   if (!trolley) return false;
 
   const transaction = db.transaction(() => {
-    db.prepare('DELETE FROM trace_trolley_slots WHERE trolley_id = ?').run(id);
+    db.prepare('UPDATE trace_products SET trolley_code = NULL, slot_number = NULL WHERE trolley_code = ?').run(trolley.code);
     db.prepare('DELETE FROM trace_alarms WHERE trolley_id = ?').run(id);
     const res = db.prepare('DELETE FROM trace_trolleys WHERE id = ?').run(id);
 
@@ -277,27 +283,33 @@ export function deleteTrolley(id: number): boolean {
 }
 
 export function getTrolleySlots(trolleyId: number): { slot_number: number; product_id: string }[] {
+  const trolley = getTrolley(trolleyId);
+  if (!trolley) return [];
   const db = getDb();
   return db
     .prepare(
-      `SELECT slot_number, product_id FROM trace_trolley_slots
-       WHERE trolley_id = ? AND released_at IS NULL ORDER BY slot_number`
+      `SELECT slot_number, product_id FROM trace_products
+       WHERE trolley_code = ? AND slot_number IS NOT NULL ORDER BY slot_number`
     )
-    .all(trolleyId) as { slot_number: number; product_id: string }[];
+    .all(trolley.code) as { slot_number: number; product_id: string }[];
 }
 
 export function assignTrolleySlot(trolleyId: number, slotNumber: number, productId: string): void {
+  const trolley = getTrolley(trolleyId);
+  if (!trolley) return;
   const db = getDb();
   db.prepare(
-    `INSERT INTO trace_trolley_slots (trolley_id, slot_number, product_id) VALUES (?, ?, ?)`
-  ).run(trolleyId, slotNumber, productId);
+    `UPDATE trace_products SET trolley_code = ?, slot_number = ?, updated_at = datetime('now') WHERE product_id = ?`
+  ).run(trolley.code, slotNumber, productId);
 }
 
 export function releaseTrolley(trolleyId: number): void {
+  const trolley = getTrolley(trolleyId);
+  if (!trolley) return;
   const db = getDb();
   db.prepare(
-    "UPDATE trace_trolley_slots SET released_at = datetime('now') WHERE trolley_id = ? AND released_at IS NULL"
-  ).run(trolleyId);
+    "UPDATE trace_products SET trolley_code = NULL, slot_number = NULL, updated_at = datetime('now') WHERE trolley_code = ?"
+  ).run(trolley.code);
 }
 
 export interface TrolleyProductItem {
@@ -314,41 +326,33 @@ export interface TrolleyProductItem {
 }
 
 export function getTrolleyProductItems(trolleyId: number): TrolleyProductItem[] {
+  const trolley = getTrolley(trolleyId);
+  if (!trolley) return [];
   const db = getDb();
-  const slots = getTrolleySlots(trolleyId);
-  const result: TrolleyProductItem[] = [];
+  const products = db
+    .prepare('SELECT * FROM trace_products WHERE trolley_code = ? AND slot_number IS NOT NULL ORDER BY slot_number')
+    .all(trolley.code) as ProductRow[];
 
-  for (const s of slots) {
-    const product = db.prepare('SELECT * FROM trace_products WHERE product_id = ?').get(s.product_id) as ProductRow | undefined;
-    if (!product) continue;
-
-    const rawRecords = db
-      .prepare(
-        `SELECT r.*, s.name as station_name
-         FROM trace_station_records r
-         LEFT JOIN trace_stations s ON r.station_id = s.id
-         WHERE r.product_id = ?
-         ORDER BY r.id DESC`
-      )
-      .all(s.product_id) as { status: string | null; data?: string; created_at: string; station_name: string }[];
-
-    const records = rawRecords.map((r) => ({
-      stationName: r.station_name ?? '—',
-      status: r.status,
-      data: r.data ? (JSON.parse(r.data) as Record<string, unknown>) : null,
-      createdAt: r.created_at,
-    }));
-
-    result.push({
-      slotNumber: s.slot_number,
-      productId: s.product_id,
-      status: product.status,
-      stepIndex: product.current_step_index,
-      records,
-    });
-  }
-
-  return result;
+  return products.map((p) => {
+    let history: { stationName?: string; status?: string; data?: Record<string, unknown>; createdAt?: string }[] = [];
+    try {
+      history = JSON.parse(p.history ?? '[]');
+    } catch {
+      history = [];
+    }
+    return {
+      slotNumber: p.slot_number!,
+      productId: p.product_id,
+      status: p.status,
+      stepIndex: p.current_step_index,
+      records: history.map((h) => ({
+        stationName: h.stationName ?? '—',
+        status: h.status ?? null,
+        data: h.data ?? null,
+        createdAt: h.createdAt ?? '',
+      })),
+    };
+  });
 }
 
 // ─── Ürünler ────────────────────────────────────────────────────────────────
@@ -372,8 +376,8 @@ export function createProduct(input: { productId: string; routeId?: number | nul
   const db = getDb();
   const res = db
     .prepare(
-      `INSERT INTO trace_products (product_id, route_id, qr_content, current_step_index)
-       VALUES (?, ?, ?, 0)`
+      `INSERT INTO trace_products (product_id, route_id, qr_content, current_step_index, plc_data, history)
+       VALUES (?, ?, ?, 0, '{}', '[]')`
     )
     .run(input.productId, input.routeId ?? null, input.qrContent ?? input.productId);
   return getProduct(Number(res.lastInsertRowid))!;
@@ -420,8 +424,6 @@ export function deleteProduct(id: number): boolean {
   if (!product) return false;
 
   const transaction = db.transaction(() => {
-    db.prepare('DELETE FROM trace_trolley_slots WHERE product_id = ?').run(product.product_id);
-    db.prepare('DELETE FROM trace_station_records WHERE product_id = ?').run(product.product_id);
     db.prepare('DELETE FROM trace_alarms WHERE product_id = ?').run(product.product_id);
     const res = db.prepare('DELETE FROM trace_products WHERE id = ?').run(id);
     return res.changes > 0;
@@ -442,41 +444,65 @@ export function addStationRecord(input: {
   operatorId?: number | null;
 }): void {
   const db = getDb();
+  const product = getProductByProductId(input.productId);
+  if (!product) return;
+
+  const station = getStation(input.stationId);
+  let history: Record<string, unknown>[] = [];
+  try {
+    history = JSON.parse(product.history ?? '[]');
+  } catch {
+    history = [];
+  }
+
+  let existingPlcData: Record<string, unknown> = {};
+  try {
+    existingPlcData = JSON.parse(product.plc_data ?? '{}');
+  } catch {
+    existingPlcData = {};
+  }
+
+  const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  const newRecord = {
+    id: history.length + 1,
+    product_id: input.productId,
+    station_id: input.stationId,
+    stationId: input.stationId,
+    station_key: station?.key ?? '',
+    station_name: station?.name ?? '',
+    stationName: station?.name ?? '',
+    status: input.status ?? 'ok',
+    data: input.data ?? {},
+    batch_no: input.batchNo ?? null,
+    operator_id: input.operatorId ?? null,
+    created_at: nowStr,
+    createdAt: nowStr,
+  };
+
+  history.push(newRecord);
+  const mergedPlcData = { ...existingPlcData, ...(input.data ?? {}) };
+
   db.prepare(
-    `INSERT INTO trace_station_records (product_id, station_id, trolley_id, status, data, batch_no, operator_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    input.productId,
-    input.stationId,
-    input.trolleyId ?? null,
-    input.status ?? null,
-    JSON.stringify(input.data ?? {}),
-    input.batchNo ?? null,
-    input.operatorId ?? null
-  );
+    `UPDATE trace_products SET history = ?, plc_data = ?, updated_at = datetime('now') WHERE product_id = ?`
+  ).run(JSON.stringify(history), JSON.stringify(mergedPlcData), input.productId);
 }
 
 export function getProductRecords(productId: string): Record<string, unknown>[] {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT r.*, s.name AS station_name, s.key AS station_key
-       FROM trace_station_records r JOIN trace_stations s ON s.id = r.station_id
-       WHERE r.product_id = ? ORDER BY r.id`
-    )
-    .all(productId) as Record<string, unknown>[];
+  const product = getProductByProductId(productId);
+  if (!product) return [];
+  try {
+    return JSON.parse(product.history ?? '[]');
+  } catch {
+    return [];
+  }
 }
 
 /** İstasyonda ürün için belirli bir kayıt var mı (task kontrolü) */
 export function hasRecord(productId: string, stationId: number, status?: string): boolean {
-  const db = getDb();
-  let sql = 'SELECT COUNT(*) AS c FROM trace_station_records WHERE product_id = ? AND station_id = ?';
-  const params: unknown[] = [productId, stationId];
-  if (status) {
-    sql += ' AND status = ?';
-    params.push(status);
-  }
-  return (db.prepare(sql).get(...params) as { c: number }).c > 0;
+  const records = getProductRecords(productId);
+  return records.some(
+    (r) => (r.station_id === stationId || r.stationId === stationId) && (!status || r.status === status)
+  );
 }
 
 // ─── Parti numaraları ───────────────────────────────────────────────────────
