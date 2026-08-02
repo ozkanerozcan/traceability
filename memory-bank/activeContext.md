@@ -199,6 +199,11 @@
   - **Çözüm:** Migration 7 (`traceability_shells_trolleys_tables`) eklendi. SQLite üzerinde bir nesnenin tablo mu yoksa görünüm (view) mü olduğu `sqlite_master` üzerinden dinamik olarak kontrol edilerek `dropObject` fonksiyonuyla güvenle silindi ve `route_id` içeren fiziki tablolar oluşturuldu.
   - **Değişen Dosyalar:** `migrations.ts`.
 
+- **2026-08-02 (QR Kod Üretim İstasyonu Full-Width Tasarım Revizyonu):**
+  - **Full-Width Düzen:** QR Kod Üretim istasyonu kutulu (boxed) yapıdan çıkarılıp tam sayfa genişliğine (`width: 100%`) kavuşturuldu.
+  - **Hero Buton & Kart Mimarisi:** "QR KOD ÜRET" aksiyon butonu büyütüldü ve parlak amber gradyanı eklendi. Önceki QR kodların kart tasarımı durum rozeti, üretim saati ve geniş QR önizleme alanı ile yenilendi.
+  - **Değişen Dosyalar:** `StationWorkPage.tsx`, `trace.css`, `walkthrough.md`.
+
 
 
 
