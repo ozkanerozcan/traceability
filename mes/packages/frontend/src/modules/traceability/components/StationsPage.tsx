@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Play, Wrench, Settings, X } from 'lucide-react';
 import { Alert, Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Select, Table, useToast } from '../../../core/components/common';
 import { traceService, CAPABILITY_KEYS, type Station, type StationCapability, type StationConfig } from '../services/trace.service';
 import { plcService, tagService, type PlcProfile, type PlcTag } from '../../plc-gateway/services/plc.service';
+import TagMultiSelect from './TagMultiSelect';
 
 export default function StationsPage() {
   const { t } = useTranslation();
@@ -452,51 +453,54 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
       {/* PLC Data — tam konfigürasyon */}
       {cap === 'plc_acquire' && (
         <>
-          <div className="flex gap-3">
-            <div style={{ flex: 1 }}>
-              <Select
-                label={t('trace.plc')}
-                value={config.plcId ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value ? Number(e.target.value) : undefined;
-                  onChange({ ...config, plcId: v, triggerTagId: undefined, slotTagId: undefined, shellIdTagId: undefined, rowTagId: undefined, dataTagIds: [] });
-                  if (v) onPlcChange(v);
-                }}
-              >
-                <option value="">{t('trace.noPlc')}</option>
-                {plcs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </Select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <Select label={t('trace.triggerTag')} value={config.triggerTagId ?? ''} onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
-                <option value="">{t('trace.noTag')}</option>
-                {tags.filter((tg) => tg.acquisitionMode === 'subscribe').map((tg) => (
-                  <option key={tg.id} value={tg.id}>{tg.name}</option>
-                ))}
-              </Select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <Select label={t('trace.shellIdSource')} value={shellSrc} onChange={(e) => set('shellIdSource', e.target.value === 'scan' ? undefined : (e.target.value as 'plc' | 'trolley'))} disabled={!config.plcId}>
-                <option value="scan">{t('trace.src.scan')}</option>
-                <option value="plc">{t('trace.src.plc')}</option>
-                <option value="trolley">{t('trace.src.trolley')}</option>
-              </Select>
-            </div>
-          </div>
-          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-1)' }}>
+          {/* PLC Seçimi */}
+          <Select
+            label={t('trace.plc')}
+            value={config.plcId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value ? Number(e.target.value) : undefined;
+              onChange({ ...config, plcId: v, triggerTagId: undefined, shellIdTagId: undefined, rowTagId: undefined, dataTagIds: [] });
+              if (v) onPlcChange(v);
+            }}
+          >
+            {plcs.length === 0 ? (
+              <option value="" disabled>{t('trace.noPlcAvailable')}</option>
+            ) : null}
+            {plcs.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
+
+          {/* Trigger Biti — yalnız subscribe + BOOL */}
+          <Select
+            label={t('trace.triggerTag')}
+            value={config.triggerTagId ?? ''}
+            onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)}
+            disabled={!config.plcId}
+          >
+            {config.plcId && tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').length === 0 ? (
+              <option value="" disabled>{t('trace.noBoolTag')}</option>
+            ) : null}
+            {tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').map((tg) => (
+              <option key={tg.id} value={tg.id}>{tg.name}</option>
+            ))}
+          </Select>
+
+          {/* Shell ID Kaynağı */}
+          <Select
+            label={t('trace.shellIdSource')}
+            value={shellSrc}
+            onChange={(e) => set('shellIdSource', e.target.value === 'scan' ? undefined : (e.target.value as 'plc' | 'trolley'))}
+            disabled={!config.plcId}
+          >
+            <option value="scan">{t('trace.src.scan')}</option>
+            <option value="plc">{t('trace.src.plc')}</option>
+            <option value="trolley">{t('trace.src.trolley')}</option>
+          </Select>
+
+          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))' }}>
             {t('trace.triggerSubscribeHint')}
           </p>
-
-          {shellSrc === 'scan' && (
-            <Select label={t('trace.slotTag')} value={config.slotTagId ?? ''} onChange={(e) => set('slotTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
-              <option value="">{t('trace.noSlotTag')}</option>
-              {tags.map((tg) => (
-                <option key={tg.id} value={tg.id}>{tg.name}</option>
-              ))}
-            </Select>
-          )}
 
           {shellSrc === 'plc' && (
             <Select label={t('trace.shellIdTag')} value={config.shellIdTagId ?? ''} onChange={(e) => set('shellIdTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
@@ -534,29 +538,13 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
           )}
 
           {config.plcId && (
-            <div className="form-group" style={{ marginTop: 'var(--space-3)' }}>
-              <span className="form-label">{t('trace.dataTags')}</span>
-              {tags.length === 0 ? (
-                <p className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>{t('trace.noTags')}</p>
-              ) : (
-                <div className="trace-tag-picker">
-                  {tags.map((tg) => (
-                    <Checkbox
-                      key={tg.id}
-                      label={tg.name}
-                      checked={(config.dataTagIds ?? []).includes(tg.id)}
-                      onChange={() =>
-                        set('dataTagIds',
-                          (config.dataTagIds ?? []).includes(tg.id)
-                            ? (config.dataTagIds ?? []).filter((x) => x !== tg.id)
-                            : [...(config.dataTagIds ?? []), tg.id]
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            <TagMultiSelect
+              label={t('trace.dataTags')}
+              tags={tags}
+              selectedIds={config.dataTagIds ?? []}
+              onChange={(ids) => set('dataTagIds', ids)}
+              disabled={!config.plcId}
+            />
           )}
         </>
       )}

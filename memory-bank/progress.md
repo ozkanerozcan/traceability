@@ -117,6 +117,20 @@
 - [x] **Yetenek konfigürasyonu ayrı pop-up:** `CapabilityConfig` — her konfigürasyon-gerektiren yeteneğin (qr_generate/trolley_read/plc_acquire/wait_control/batch_assign) ayarları kendi iç içe pop-up'ında (`modalStack`). Çipteki dişli (⚙) ikonuyla açılır; tek `config` objesi state'inde düzenlenir.
 - [x] **Doğrulama (tarayıcı):** isim → anahtar oto (`test_dolum`), yetenek seçici pop-up (blur overlay), PLC Verisi çipi + tip oto "PLC", PLC Verisi Ayarları pop-up'ı (PLC + Trigger + Shell ID kaynağı + slot). Typecheck + build temiz (PWA 42). CSS `.trace-cap-chips/-chip/-add`.
 
+## What Works (İstasyon inceleme turu #6 — PLC Data yapılandırma revizyonu, 2026-08-02)
+- [x] **`slotTagId` kaldırıldı:** Ayrı "Slot Tag" dropdown'ı kaldırıldı — slot/pozisyon bilgisi artık `dataTagIds` içinde yer alır ve trigger'da otomatik kaydedilir. Scan modunda aktif araba varsa ürün **sonraki boş slota** otomatik atanır (PLC'den gelen slot numarasına göre değil). Frontend + backend tiplerinden, `station.engine`'den ve UI'dan kaldırıldı.
+- [x] **Multi-select `TagMultiSelect` bileşeni (yeni):** `dataTagIds` için arama destekli pop-up — tag adı/adres/açıklama ile filtreleme, çoklu seçim (toggle), seçilenleri **liste halinde** gösterim (tag adı + adres + birim + veri tipi, X ile kaldırma, scroll). Checkbox listesi yerine kullanılıyor.
+- [x] **Select dizi (array) işleme hatası düzeltildi:** `processChild` `.map()` sonucu gelen children'ları işleyemiyordu — PLC/tag dropdown'ları hep boş gösteriyordu. Recursive dizi desteği eklendi.
+- [x] **Modal `onClose` kararlılık sorunu düzeltildi:** `useRef` ile `onClose` referansı sabit tutuldu — `useEffect` yalnızca `open` değişince çalışır. Pop-up'ların tekrar açılmama sorunu çözüldü. `stableOnCloseRef` ile cleanup güvenliği eklendi.
+- [x] **Placeholder seçenekler kaldırıldı:** "PLC seçin", "Tag yok" gibi bilgilendirme metinleri artık seçilebilir seçenek değil — PLC varken sadece PLC'ler, tag varken sadece tag'ler listeleniyor. PLC yokken disabled bilgi metni gösteriliyor.
+- [x] **Trigger bit BOOL filtresi:** Sadece `subscribe + BOOL` tag'ler listeleniyor (önceki: sadece subscribe).
+- [x] **Layout alt alta:** PLC, Trigger Bit, Shell ID Source yan yana değil, alt alta — daha ferah arayüz.
+- [x] **Select boş değer placeholder:** Seçim yapılmadığında ilk seçeneğe düşmek yerine "Seçiniz..." gösteriliyor.
+- [x] **Dinamik z-index:** Modal stacking `modalCloseStack.length` bazlı — her iç içe modal bir basamak yüksekte açılır.
+- [x] **i18n:** `noPlcAvailable`, `selectPlc`, `noBoolTag`, `noTagsSelected`, `nTagsSelected`, `selectTags`, `searchTags`, `noMatchingTags`, `dataTagsHint` (tr/en).
+- [x] **Değişen dosyalar:** `core/components/common/index.tsx` (Modal + Select), `modules/traceability/components/TagMultiSelect.tsx` (yeni), `StationsPage.tsx`, `StationWorkPage.tsx`, `trace.service.ts` (frontend + backend), `station.engine.ts`, `tr.json`, `en.json`.
+- [x] **Doğrulama:** Typecheck + backend/frontend build temiz (PWA 42 precache).
+
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 

@@ -85,8 +85,20 @@ export function Select({ label, error, id, children, value, onChange, disabled, 
   const [searchTerm, setSearchTerm] = useState('');
   const selectId = id ?? rest.name ?? 'select-picker';
 
+  // onClose referansını sabit tut — useEffect'in gereksiz yeniden
+  // çalışmasını ve modalCloseStack'in bozulmasını önler
+  const handleClose = useCallback(() => {
+    setPickerOpen(false);
+    setSearchTerm('');
+  }, []);
+
   const options: SelectOptionItem[] = [];
   const processChild = (child: ReactNode) => {
+    // Dizileri (.map() sonucu gelen children) recursive işle
+    if (Array.isArray(child)) {
+      child.forEach(processChild);
+      return;
+    }
     if (isValidElement<{ value?: string | number; children?: ReactNode; disabled?: boolean }>(child)) {
       const props = child.props;
       if (child.type === 'option') {
@@ -105,7 +117,10 @@ export function Select({ label, error, id, children, value, onChange, disabled, 
   const childrenArray = Array.isArray(children) ? children : [children];
   childrenArray.forEach(processChild);
 
-  const selectedOption = options.find((opt) => String(opt.value) === String(value)) ?? options[0];
+  // Değer boşsa (seçim yapılmamış) placeholder göster — ilk seçeneğe düşme
+  const selectedOption = value === '' || value === undefined || value === null
+    ? undefined
+    : (options.find((opt) => String(opt.value) === String(value)) ?? options[0]);
 
   const handleSelectOption = (optValue: string | number) => {
     if (disabled) return;
@@ -169,10 +184,7 @@ export function Select({ label, error, id, children, value, onChange, disabled, 
       <Modal
         open={pickerOpen}
         title={label ?? 'Seçim Yapın'}
-        onClose={() => {
-          setPickerOpen(false);
-          setSearchTerm('');
-        }}
+        onClose={handleClose}
         modalStack
       >
         <div className="picker-popup-container">
@@ -275,13 +287,24 @@ function handleGlobalEscape(e: KeyboardEvent) {
 
 export function Modal({ open, title, onClose, children, footer, wide, modalStack }: ModalProps) {
 
+  // onClose referansını ref'te tut — useEffect yalnızca `open` değişince
+  // çalışır, onClose'un her render'da yeni fonksiyon olması stack'i bozmaz
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // stableOnClose referansını da ref'te tut — cleanup aynı referansı
+  // bulup kaldırabilsin (indexOf referans eşitliği kullanır)
+  const stableOnCloseRef = useRef<(() => void) | null>(null);
+
   // Escape ile kapat (yalnız en üstteki) + arka plan kaydırmasını kilitle
   useEffect(() => {
     if (!open) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    modalCloseStack.push(onClose);
+    const stableOnClose = () => onCloseRef.current();
+    stableOnCloseRef.current = stableOnClose;
+    modalCloseStack.push(stableOnClose);
     if (!escapeListenerAttached) {
       document.addEventListener('keydown', handleGlobalEscape);
       escapeListenerAttached = true;
@@ -289,16 +312,27 @@ export function Modal({ open, title, onClose, children, footer, wide, modalStack
 
     return () => {
       document.body.style.overflow = prevOverflow;
-      const idx = modalCloseStack.indexOf(onClose);
+      const idx = modalCloseStack.indexOf(stableOnClose);
       if (idx !== -1) modalCloseStack.splice(idx, 1);
+      stableOnCloseRef.current = null;
       if (modalCloseStack.length === 0 && escapeListenerAttached) {
         document.removeEventListener('keydown', handleGlobalEscape);
         escapeListenerAttached = false;
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
+
+  // Dinamik z-index: her açılan modal, bir öncekinden bir basamak yüksekte
+  // olur. modalCloseStack.length, render anında bu modal'dan önce açılmış
+  // olanların sayısını verir (effect henüz push yapmadığı için).
+  // Böylece iç içe açılan modal'lar (StationForm → CapabilityConfig →
+  // Select picker) her zaman doğru sıralama ile üst üste biner.
+  const stackDepth = modalCloseStack.length;
+  const overlayZIndex = modalStack
+    ? `calc(var(--z-modal) + ${stackDepth} * var(--z-modal-step))`
+    : undefined;
 
   // Portal: overlay her zaman document.body'ye render edilir.
   // Böylece iç içe pop-up'larda ikincil diyalog, üst modalın
@@ -309,7 +343,7 @@ export function Modal({ open, title, onClose, children, footer, wide, modalStack
     <div
       className="modal-overlay"
       onClick={onClose}
-      style={modalStack ? { zIndex: 'calc(var(--z-modal) + var(--z-modal-step))' } : undefined}
+      style={overlayZIndex ? { zIndex: overlayZIndex } : undefined}
     >
       <div
         className={`modal${wide ? ' modal-wide' : ''}`}

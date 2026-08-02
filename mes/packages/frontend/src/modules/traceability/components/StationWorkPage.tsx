@@ -338,9 +338,6 @@ export default function StationWorkPage() {
               {shellSrc === 'plc' && station.config.shellIdTagId ? (
                 <div>{t('trace.shellIdTag')}: <strong>{tagName(station.config.shellIdTagId)}</strong></div>
               ) : null}
-              {shellSrc === 'scan' && station.config.slotTagId ? (
-                <div>{t('trace.slotTag')}: <strong>{tagName(station.config.slotTagId)}</strong></div>
-              ) : null}
               {shellSrc === 'trolley' ? (
                 <div>{t('trace.trolleyMatch')}: <strong>{t(`trace.match.${station.config.trolleyMatchMode ?? 'all'}`)}</strong></div>
               ) : null}

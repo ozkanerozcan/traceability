@@ -219,7 +219,8 @@ async function handlePlcAcquireScan(station: StationRow, input: ScanInput, userI
 /**
  * PLC Data trigger yakalandığında çağrılır (plc-data-watcher).
  * Trigger biti true olduğunda config'deki dataTagIds değerlerini PLC'den okuyup
- * istasyonun AKTİF ürününe yazar; slotTagId varsa ürünü AKTİF arabaya o slot'a atar.
+ * istasyonun AKTİF ürününe yazar. Slot/pozisyon bilgisi de dataTagIds içinde
+ * yer alır; scan modunda aktif araba varsa ürün sonraki boş slota atanır.
  */
 export async function capturePlcData(stationId: number): Promise<void> {
   const station = getStation(stationId);
@@ -308,6 +309,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
   }
 
   // ─── Veri tag'lerini taze oku ───
+  // Slot tag de dataTagIds içinde yer alır; değeri otomatik kaydedilir.
   const data: Record<string, unknown> = {};
   for (const tagId of config.dataTagIds) {
     try {
@@ -317,25 +319,21 @@ export async function capturePlcData(stationId: number): Promise<void> {
     }
   }
 
-  // Slot (yalnız 'scan' modunda, aktif arabaya pozisyon atamak için)
-  let slot: number | null = null;
-  if (source === 'scan' && config.slotTagId) {
-    try {
-      const v = await readPlcValue(plcId, config.slotTagId);
-      slot = v === null ? null : Number(v) || null;
-    } catch {
-      slot = null;
-    }
-  }
-
   // ─── Hedef ürün(ler)e veriyi yaz + ilerlet ───
   for (const product of targets) {
-    // scan modunda slot varsa arabaya pozisyon ata
-    if (source === 'scan' && ctx.trolleyId && slot !== null && slot >= 1) {
-      try {
-        assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
-      } catch {
-        // slot dolu olabilir — kaydı yine de yaz
+    // scan modunda aktif araba varsa sonraki boş slota ata
+    let slot: number | null = null;
+    if (source === 'scan' && ctx.trolleyId) {
+      const trolley = getTrolley(ctx.trolleyId);
+      if (trolley) {
+        slot = nextFreeSlot(trolley.id, trolley.slot_count);
+        if (slot) {
+          try {
+            assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
+          } catch {
+            // slot dolu olabilir — kaydı yine de yaz
+          }
+        }
       }
     }
     addStationRecord({
@@ -343,7 +341,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
       stationId,
       trolleyId: ctx.trolleyId ?? null,
       status: 'done',
-      data: { ...data, ...(source === 'scan' ? { slot } : {}) },
+      data,
     });
     tryAdvance(product, station);
   }
@@ -352,7 +350,7 @@ export async function capturePlcData(stationId: number): Promise<void> {
   setLastCapture(stationId, {
     productId: targets.length === 1 ? targets[0].product_id : `${targets.length} ürün`,
     data,
-    slot,
+    slot: null,
     at: new Date().toISOString(),
   });
 

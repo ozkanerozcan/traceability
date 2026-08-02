@@ -54,9 +54,8 @@ export interface StationConfig {
   labelWidth?: number;  // QR etiket genişliği (mm)
   labelHeight?: number; // QR etiket yüksekliği (mm)
   // ─── PLC Data (plc_acquire) ───
-  dataTagIds?: number[];  // ürüne yazılacak tag'ler
+  dataTagIds?: number[];  // ürüne yazılacak tag'ler (slot tag de dahil)
   triggerTagId?: number;  // trigger biti — true olunca dataTagIds ürüne yazılır
-  slotTagId?: number;     // slot/pozisyon tag'i (trolley_read slot kaynağı)
   // Shell ID kaynağı — trigger'da verinin hangi ürün(ler)e yazılacağı:
   //   yok/'scan'    → taranan AKTİF ürün (barkod okutulur)
   //   'plc'         → Shell ID doğrudan PLC tag'inden okunur (shellIdTagId)
