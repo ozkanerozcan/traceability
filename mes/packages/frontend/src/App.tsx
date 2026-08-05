@@ -26,7 +26,6 @@ const TraceStationsPage = lazy(() => import('./modules/traceability/components/S
 const TraceStationWorkPage = lazy(() => import('./modules/traceability/components/StationWorkPage'));
 const TraceProductsPage = lazy(() => import('./modules/traceability/components/ProductsPage'));
 const TraceTrolleysPage = lazy(() => import('./modules/traceability/components/TrolleysPage'));
-const TraceRoutesPage = lazy(() => import('./modules/traceability/components/RoutesPage'));
 const TraceAlarmsPage = lazy(() => import('./modules/traceability/components/AlarmsPanel'));
 
 function PageLoader() {
@@ -84,7 +83,6 @@ export default function App() {
                       <Route path="trace/work/:stationKey" element={<TraceStationWorkPage />} />
                       <Route path="trace/products" element={<TraceProductsPage />} />
                       <Route path="trace/trolleys" element={<TraceTrolleysPage />} />
-                      <Route path="trace/routes" element={<TraceRoutesPage />} />
                       <Route path="trace/alarms" element={<TraceAlarmsPage />} />
                     </Route>
                   </Route>

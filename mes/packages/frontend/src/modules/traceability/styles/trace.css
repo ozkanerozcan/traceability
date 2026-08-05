@@ -181,15 +181,22 @@
   background: var(--bg-input);
   cursor: pointer;
   user-select: none;
-  transition: all 0.2s ease;
+  /* Önceki QR Kodlar kartlarıyla (.trace-qr-card) birebir aynı animasyon/efekt */
+  transition: all 0.25s ease;
   position: relative;
   padding: var(--space-2);
+  overflow: hidden;
 }
 
 .trace-sim-slot:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  /* QR kart hover'ı ile birebir aynı: translateY(-3px) + accent glow */
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 15px rgba(253, 201, 84, 0.15);
+}
+
+.trace-sim-slot:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .trace-sim-slot.filled {
@@ -197,6 +204,10 @@
   border-color: var(--accent);
   background: rgba(253, 201, 84, 0.1);
   box-shadow: 0 0 10px rgba(253, 201, 84, 0.2);
+}
+
+.trace-sim-slot.filled:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 20px rgba(253, 201, 84, 0.3);
 }
 
 .trace-sim-slot-num {
@@ -244,7 +255,22 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-weight: 500;
-  transition: all var(--transition-fast);
+  cursor: pointer;
+  user-select: none;
+  /* Önceki QR Kodlar kartlarıyla (.trace-qr-card) birebir aynı animasyon/efekt */
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.trace-slot:hover {
+  border-color: var(--accent);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 15px rgba(253, 201, 84, 0.15);
+}
+
+.trace-slot:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .trace-slot.filled {
@@ -253,6 +279,10 @@
   color: var(--accent);
   font-weight: 700;
   box-shadow: 0 0 6px rgba(253, 201, 84, 0.2);
+}
+
+.trace-slot.filled:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 20px rgba(253, 201, 84, 0.3);
 }
 
 /* ─── Rota editörü ─── */
@@ -565,3 +595,121 @@
   font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
+
+/* ─── İstasyon çalışma panelleri (tip bazlı özel ekranlar) ─── */
+.trace-panel-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  gap: var(--space-5);
+  align-items: start;
+  width: 100%;
+}
+
+@media (max-width: 1023px) {
+  .trace-panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trace-panel-card {
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+.trace-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-3);
+  color: var(--text-primary);
+}
+
+.trace-capture-data {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.trace-capture-item {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.trace-manual-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0 var(--space-3);
+}
+
+/* ─── Ölçüm editörü (MeasurementEditor) ─── */
+.trace-measurement-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+}
+
+.trace-measurement-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.trace-measurement-row:last-child {
+  border-bottom: none;
+}
+
+.trace-measurement-suggested {
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  background: transparent;
+}
+
+.trace-measurement-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  min-width: 0;
+  flex: 1;
+}
+
+.trace-measurement-source {
+  flex-shrink: 0;
+}
+
+.trace-measurement-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.trace-measurement-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+

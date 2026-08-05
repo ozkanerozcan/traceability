@@ -2,17 +2,27 @@ import { getDb } from '../../core/database/connection.js';
 
 // ─── Tipler ─────────────────────────────────────────────────────────────────
 
-export type StationCapability =
-  | 'qr_generate'
-  | 'trolley_read'
-  | 'trolley_assign'
-  | 'batch_assign'
-  | 'ok_nok'
-  | 'plc_acquire'
-  | 'wait_control'
-  | 'alarm'
-  | 'operator_confirm'
-  | 'route_validate';
+/**
+ * Sabit istasyon tipleri — her tip kendi özel ayarlarına, PLC sözleşmesine ve
+ * çalışma sayfasına sahiptir (eski yetenek/capability sistemi kaldırıldı).
+ * Yeni istasyon tipleri ileride bu listeye eklenebilir.
+ */
+export type StationType =
+  | 'qr_generate'            // QR Kod Üretim — PLC'siz, Shell ID + QR üretir
+  | 'trolley_read'           // Trolley Okuma — PLC'den yalnız TrolleyId
+  | 'funnel_screwing'        // Funnel Sıkma — ShellId + Data (tork)
+  | 'trolley_shell_matching' // Trolley-Shell Eşleştirme — ShellId + SlotNumber
+  | 'filling'                // Dolum — TrolleyId + RowNumber + Data (satırdaki tüm shell'ler)
+  | 'probing';               // Problama — TrolleyId + Data (arabadaki tüm shell'ler)
+
+/** Trigger'ı izlenen PLC'li istasyon tipleri (qr_generate PLC'sizdir) */
+export const PLC_STATION_TYPES: StationType[] = [
+  'trolley_read',
+  'funnel_screwing',
+  'trolley_shell_matching',
+  'filling',
+  'probing',
+];
 
 export interface StationRow {
   id: number;
@@ -21,7 +31,6 @@ export interface StationRow {
   type: string;
   sort_order: number;
   is_active: number;
-  capabilities: string; // JSON
   config: string; // JSON
 }
 
@@ -29,12 +38,9 @@ export interface ProductRow {
   id: number;
   product_id: string;
   status: 'in_progress' | 'completed' | 'rejected';
-  route_id: number | null;
-  current_step_index: number;
   qr_content: string | null;
   trolley_code: string | null;
   slot_number: number | null;
-  plc_data: string;
   history: string;
   created_at?: string;
   updated_at?: string;
@@ -47,47 +53,38 @@ export interface TrolleyRow {
   is_active: number;
 }
 
+/**
+ * Standart PLC sözleşmesi — her PLC'li istasyonun tag eşlemesi.
+ *
+ *   ShellId    (R/W string)  — okunan/atanacak ürün
+ *   TrolleyId  (R/W string)  — okunan/atanacak araba
+ *   SlotNumber (R/W int)     — araba üzerindeki TEK yuva (1..capacity)
+ *   RowNumber  (R/W int)     — araba üzerindeki SATIR (1 satır = row_size yuva)
+ *   Trigger    (R/W bool)    — PLC "işle" komutu (subscribe, yükselen kenar)
+ *   Data/<tagAdı> (R/W)      — istasyona tanımlı ölçüm alanları (dataTagIds)
+ *
+ * Sonuç (işlem bitince MES → PLC yazar):
+ *   Ack(bool)  — başarılı (200 OK karşılığı)
+ *   ErrorCode(int) — 0 = hata yok; hata kodları station.engine.PLC_ERR
+ *   ErrorMessage(string) — hata açıklaması
+ *   Busy(bool) — MES işlerken true
+ */
 export interface StationConfig {
   plcId?: number;
-  plcTagId?: number;
-  torqueTagId?: number;
-  positionTagId?: number;
-  alarmTagId?: number;
-  waitHours?: number;
-  positions?: number;
-  groupSize?: number;
-  componentKind?: 'material' | 'component';
-  fields?: string[]; // plc_acquire için alan adları
-  labelWidth?: number;  // QR etiket genişliği (mm)
-  labelHeight?: number; // QR etiket yüksekliği (mm)
-  // ─── PLC Data (plc_acquire) ───
-  dataTagIds?: number[];  // ürüne yazılacak tag'ler (slot tag de dahil)
-  triggerTagId?: number;  // trigger biti — true olunca dataTagIds ürüne yazılır
-  // Shell ID kaynağı — trigger'da verinin hangi ürün(ler)e yazılacağı:
-  //   yok/'scan'    → taranan AKTİF ürün (barkod okutulur)
-  //   'plc'         → Shell ID doğrudan PLC tag'inden okunur (shellIdTagId)
-  //   'trolley'     → onaylı arabadaki ürünler (satır bazlı / tüm ürünler)
-  shellIdSource?: 'plc' | 'trolley';
-  shellIdTagId?: number;        // shellIdSource='plc': Shell ID okunacak tag
-  trolleyIdTagId?: number;      // shellIdSource='trolley': Trolley ID okunacak tag
-  trolleyMatchMode?: 'row' | 'all'; // shellIdSource='trolley': eşleştirme yöntemi
-  rowTagId?: number;            // trolleyMatchMode='row': satır numarası tag'i
-  rowSize?: number;             // satır başına ürün sayısı (varsayılan 4)
-  slotTagId?: number;           // PLC'den okunan trolley slot numarası tag'i
-  /**
-   * trolley_read: araba okutulduğunda önceki içerik OTOMATİK temizlensin mi?
-   * Yalnızca İLK/yükleme istasyonunda true olmalı (varsayılan true) — sonraki
-   * istasyonlar yüklü arabayı okurken false'a çekilmeli (ürünler silinmez).
-   */
+  shellIdTagId?: number;        // ShellId (string)
+  trolleyIdTagId?: number;      // TrolleyId (string)
+  slotTagId?: number;           // SlotNumber (int)
+  rowTagId?: number;            // RowNumber (int) — filling
+  triggerTagId?: number;        // Trigger (bool, subscribe)
+  dataTagIds?: number[];        // Data/<tagAdı> ölçüm alanları
+  ackTagId?: number;            // Ack (bool)
+  errorCodeTagId?: number;      // ErrorCode (int)
+  errorMessageTagId?: number;   // ErrorMessage (string)
+  busyTagId?: number;           // Busy (bool)
+  /** trolley_read: araba okutulduğunda önceki slot içeriği temizlensin mi (varsayılan true) */
   clearOnRead?: boolean;
-}
-
-export function parseCapabilities(json: string): StationCapability[] {
-  try {
-    return JSON.parse(json) as StationCapability[];
-  } catch {
-    return [];
-  }
+  labelWidth?: number;          // qr_generate — etiket genişliği (mm)
+  labelHeight?: number;         // qr_generate — etiket yüksekliği (mm)
 }
 
 export function parseConfig(json: string): StationConfig {
@@ -119,22 +116,20 @@ export function createStation(input: {
   key: string;
   name: string;
   type?: string;
-  capabilities?: string[];
   config?: StationConfig;
 }): StationRow {
   const db = getDb();
   const maxOrder = (db.prepare('SELECT COALESCE(MAX(sort_order),-1) AS m FROM trace_stations').get() as { m: number }).m;
   const res = db
     .prepare(
-      `INSERT INTO trace_stations (key, name, type, sort_order, capabilities, config)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO trace_stations (key, name, type, sort_order, config)
+       VALUES (?, ?, ?, ?, ?)`
     )
     .run(
       input.key,
       input.name,
-      input.type ?? 'generic',
+      input.type ?? 'legacy',
       maxOrder + 1,
-      JSON.stringify(input.capabilities ?? []),
       JSON.stringify(input.config ?? {})
     );
   return getStation(Number(res.lastInsertRowid))!;
@@ -142,19 +137,18 @@ export function createStation(input: {
 
 export function updateStation(
   id: number,
-  input: Partial<{ name: string; type: string; is_active: boolean; capabilities: string[]; config: StationConfig; sort_order: number }>
+  input: Partial<{ name: string; type: string; is_active: boolean; config: StationConfig; sort_order: number }>
 ): StationRow | undefined {
   const db = getDb();
   const existing = getStation(id);
   if (!existing) return undefined;
   db.prepare(
-    `UPDATE trace_stations SET name = ?, type = ?, is_active = ?, capabilities = ?, config = ?,
+    `UPDATE trace_stations SET name = ?, type = ?, is_active = ?, config = ?,
        sort_order = ?, updated_at = datetime('now') WHERE id = ?`
   ).run(
     input.name ?? existing.name,
     input.type ?? existing.type,
     input.is_active === undefined ? existing.is_active : input.is_active ? 1 : 0,
-    JSON.stringify(input.capabilities ?? parseCapabilities(existing.capabilities)),
     JSON.stringify(input.config ?? parseConfig(existing.config)),
     input.sort_order ?? existing.sort_order,
     id
@@ -166,55 +160,6 @@ export function deleteStation(id: number): boolean {
   const db = getDb();
   const res = db.prepare('DELETE FROM trace_stations WHERE id = ?').run(id);
   return res.changes > 0;
-}
-
-// ─── Rotalar ────────────────────────────────────────────────────────────────
-
-export function listRoutes(): { id: number; name: string; is_active: number }[] {
-  const db = getDb();
-  return db.prepare('SELECT * FROM trace_routes ORDER BY id').all() as {
-    id: number;
-    name: string;
-    is_active: number;
-  }[];
-}
-
-export function getRouteSteps(routeId: number): { station_id: number; sequence: number }[] {
-  const db = getDb();
-  return db
-    .prepare('SELECT station_id, sequence FROM trace_route_steps WHERE route_id = ? ORDER BY sequence')
-    .all(routeId) as { station_id: number; sequence: number }[];
-}
-
-export function setRouteSteps(routeId: number, stationIds: number[]): void {
-  const db = getDb();
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM trace_route_steps WHERE route_id = ?').run(routeId);
-    const insert = db.prepare(
-      'INSERT INTO trace_route_steps (route_id, station_id, sequence) VALUES (?, ?, ?)'
-    );
-    stationIds.forEach((sid, i) => insert.run(routeId, sid, i));
-  });
-  tx();
-}
-
-export function createRoute(name: string): { id: number; name: string } {
-  const db = getDb();
-  const res = db.prepare('INSERT INTO trace_routes (name) VALUES (?)').run(name);
-  return { id: Number(res.lastInsertRowid), name };
-}
-
-/** Rotanın sıradaki istasyonu (ürünün current_step_index'ine göre) */
-export function getNextStationForProduct(product: ProductRow): StationRow | undefined {
-  if (!product.route_id) return undefined;
-  const db = getDb();
-  const step = db
-    .prepare(
-      `SELECT station_id FROM trace_route_steps WHERE route_id = ? AND sequence = ?`
-    )
-    .get(product.route_id, product.current_step_index) as { station_id: number } | undefined;
-  if (!step) return undefined;
-  return getStation(step.station_id);
 }
 
 // ─── Arabalar ───────────────────────────────────────────────────────────────
@@ -267,15 +212,9 @@ export function deleteTrolley(id: number): boolean {
   const transaction = db.transaction(() => {
     db.prepare('UPDATE shells SET trolley_id = NULL, slot_number = NULL WHERE trolley_id = ?').run(trolley.code);
     db.prepare('DELETE FROM trace_alarms WHERE trolley_id = ?').run(id);
+    // Bu arabayı işaret eden istasyon runtime kayıtlarını temizle
+    db.prepare('UPDATE trace_station_runtime SET trolley_id = NULL WHERE trolley_id = ?').run(trolley.code);
     const res = db.prepare('DELETE FROM trolleys WHERE id = ?').run(id);
-
-    for (const [, ctx] of stationContexts.entries()) {
-      if (ctx.trolleyId === id) {
-        ctx.trolleyId = null;
-        ctx.trolleyCode = null;
-      }
-    }
-
     return res.changes > 0;
   });
 
@@ -316,13 +255,6 @@ export interface TrolleyProductItem {
   slotNumber: number;
   productId: string;
   status: string;
-  stepIndex: number;
-  records: {
-    stationName: string;
-    status: string | null;
-    data: Record<string, unknown> | null;
-    createdAt: string;
-  }[];
 }
 
 export function getTrolleyProductItems(trolleyId: number): TrolleyProductItem[] {
@@ -330,32 +262,20 @@ export function getTrolleyProductItems(trolleyId: number): TrolleyProductItem[] 
   if (!trolley) return [];
   const db = getDb();
   const products = db
-    .prepare('SELECT * FROM shells WHERE trolley_id = ? AND slot_number IS NOT NULL ORDER BY slot_number')
-    .all(trolley.code) as { shell_id: string; status: string; current_step_index: number; slot_number: number; history: string }[];
+    .prepare('SELECT shell_id, status, slot_number FROM shells WHERE trolley_id = ? AND slot_number IS NOT NULL ORDER BY slot_number')
+    .all(trolley.code) as { shell_id: string; status: string; slot_number: number }[];
 
-  return products.map((p) => {
-    let history: { stationName?: string; status?: string; data?: Record<string, unknown>; createdAt?: string }[] = [];
-    try {
-      history = JSON.parse(p.history ?? '[]');
-    } catch {
-      history = [];
-    }
-    return {
-      slotNumber: p.slot_number,
-      productId: p.shell_id,
-      status: p.status,
-      stepIndex: p.current_step_index,
-      records: history.map((h) => ({
-        stationName: h.stationName ?? '—',
-        status: h.status ?? null,
-        data: h.data ?? null,
-        createdAt: h.createdAt ?? '',
-      })),
-    };
-  });
+  return products.map((p) => ({
+    slotNumber: p.slot_number,
+    productId: p.shell_id,
+    status: p.status,
+  }));
 }
 
 // ─── Ürünler ────────────────────────────────────────────────────────────────
+
+const PRODUCT_SELECT =
+  'SELECT id, shell_id AS product_id, status, qr_content, trolley_id AS trolley_code, slot_number, history, created_at, updated_at FROM shells';
 
 export function generateProductId(date = new Date()): string {
   const db = getDb();
@@ -372,25 +292,25 @@ export function generateProductId(date = new Date()): string {
   return `${prefix}${String(seq).padStart(4, '0')}`;
 }
 
-export function createProduct(input: { productId: string; routeId?: number | null; qrContent?: string }): ProductRow {
+export function createProduct(input: { productId: string; qrContent?: string }): ProductRow {
   const db = getDb();
   const res = db
     .prepare(
-      `INSERT INTO shells (shell_id, route_id, qr_content, current_step_index, history)
-       VALUES (?, ?, ?, 0, '[]')`
+      `INSERT INTO shells (shell_id, qr_content, history)
+       VALUES (?, ?, '[]')`
     )
-    .run(input.productId, input.routeId ?? null, input.qrContent ?? input.productId);
+    .run(input.productId, input.qrContent ?? input.productId);
   return getProduct(Number(res.lastInsertRowid))!;
 }
 
 export function getProduct(id: number): ProductRow | undefined {
   const db = getDb();
-  return db.prepare('SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, history, created_at, updated_at FROM shells WHERE id = ?').get(id) as ProductRow | undefined;
+  return db.prepare(`${PRODUCT_SELECT} WHERE id = ?`).get(id) as ProductRow | undefined;
 }
 
 export function getProductByProductId(productId: string): ProductRow | undefined {
   const db = getDb();
-  return db.prepare('SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, history, created_at, updated_at FROM shells WHERE shell_id = ?').get(productId) as ProductRow | undefined;
+  return db.prepare(`${PRODUCT_SELECT} WHERE shell_id = ?`).get(productId) as ProductRow | undefined;
 }
 
 export function listProducts(opts: { status?: string; limit?: number } = {}): ProductRow[] {
@@ -398,17 +318,10 @@ export function listProducts(opts: { status?: string; limit?: number } = {}): Pr
   const limit = Math.min(opts.limit ?? 200, 1000);
   if (opts.status) {
     return db
-      .prepare('SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, history, created_at, updated_at FROM shells WHERE status = ? ORDER BY id DESC LIMIT ?')
+      .prepare(`${PRODUCT_SELECT} WHERE status = ? ORDER BY id DESC LIMIT ?`)
       .all(opts.status, limit) as ProductRow[];
   }
-  return db.prepare('SELECT id, shell_id AS product_id, status, route_id, current_step_index, qr_content, trolley_id AS trolley_code, slot_number, history, created_at, updated_at FROM shells ORDER BY id DESC LIMIT ?').all(limit) as ProductRow[];
-}
-
-export function advanceProduct(productId: string): void {
-  const db = getDb();
-  db.prepare(
-    "UPDATE shells SET current_step_index = current_step_index + 1, updated_at = datetime('now') WHERE shell_id = ?"
-  ).run(productId);
+  return db.prepare(`${PRODUCT_SELECT} ORDER BY id DESC LIMIT ?`).all(limit) as ProductRow[];
 }
 
 export function setProductStatus(productId: string, status: 'in_progress' | 'completed' | 'rejected'): void {
@@ -425,6 +338,7 @@ export function deleteProduct(id: number): boolean {
 
   const transaction = db.transaction(() => {
     db.prepare('DELETE FROM trace_alarms WHERE product_id = ?').run(product.product_id);
+    db.prepare('DELETE FROM trace_measurements WHERE shell_id = ?').run(product.product_id);
     const res = db.prepare('DELETE FROM shells WHERE id = ?').run(id);
     return res.changes > 0;
   });
@@ -432,7 +346,7 @@ export function deleteProduct(id: number): boolean {
   return transaction();
 }
 
-// ─── İstasyon kayıtları ─────────────────────────────────────────────────────
+// ─── İstasyon kayıtları (history JSON — olay günlüğü) ───────────────────────
 
 export function addStationRecord(input: {
   productId: string;
@@ -490,7 +404,7 @@ export function getProductRecords(productId: string): Record<string, unknown>[] 
   }
 }
 
-/** İstasyonda ürün için belirli bir kayıt var mı (task kontrolü) */
+/** İstasyonda ürün için belirli bir kayıt var mı */
 export function hasRecord(productId: string, stationId: number, status?: string): boolean {
   const records = getProductRecords(productId);
   return records.some(
@@ -498,23 +412,87 @@ export function hasRecord(productId: string, stationId: number, status?: string)
   );
 }
 
-// ─── Parti numaraları ───────────────────────────────────────────────────────
+// ─── Ölçümler (trace_measurements — düzenlenebilir/silinebilir) ─────────────
 
-export function listBatches(kind?: string): Record<string, unknown>[] {
-  const db = getDb();
-  if (kind) {
-    return db.prepare('SELECT * FROM trace_batches WHERE kind = ? ORDER BY id DESC').all(kind) as Record<string, unknown>[];
-  }
-  return db.prepare('SELECT * FROM trace_batches ORDER BY id DESC').all() as Record<string, unknown>[];
+export interface MeasurementRow {
+  id: number;
+  shell_id: string;
+  station_key: string;
+  field: string;
+  tag_id: number | null;
+  value_num: number | null;
+  value_text: string | null;
+  source: 'plc' | 'manual';
+  created_at: string;
+  updated_at: string;
 }
 
-export function createBatch(batchNo: string, kind: 'material' | 'component', description?: string): void {
+/**
+ * Ölçüm yazar — (shell_id, station_key, field) tekil; tekrar tetiklemede
+ * mevcut kaydın ÜZERİNE yazılır (UPSERT). Kaynak: 'plc' (trigger) veya
+ * 'manual' (web arayüzünden girilen veri).
+ */
+export function upsertMeasurement(input: {
+  shellId: string;
+  stationKey: string;
+  field: string;
+  tagId?: number | null;
+  value: number | string | boolean;
+  source: 'plc' | 'manual';
+}): void {
   const db = getDb();
-  db.prepare('INSERT OR IGNORE INTO trace_batches (batch_no, kind, description) VALUES (?, ?, ?)').run(
-    batchNo,
-    kind,
-    description ?? null
-  );
+  const num =
+    typeof input.value === 'number' ? input.value
+    : typeof input.value === 'boolean' ? (input.value ? 1 : 0)
+    : null;
+  const text = typeof input.value === 'number' ? null : String(input.value);
+  db.prepare(
+    `INSERT INTO trace_measurements (shell_id, station_key, field, tag_id, value_num, value_text, source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(shell_id, station_key, field)
+     DO UPDATE SET value_num = excluded.value_num, value_text = excluded.value_text,
+                   tag_id = excluded.tag_id, source = excluded.source, updated_at = datetime('now')`
+  ).run(input.shellId, input.stationKey, input.field, input.tagId ?? null, num, text, input.source);
+}
+
+export function listMeasurements(shellId: string, stationKey?: string): MeasurementRow[] {
+  const db = getDb();
+  if (stationKey) {
+    return db
+      .prepare('SELECT * FROM trace_measurements WHERE shell_id = ? AND station_key = ? ORDER BY field')
+      .all(shellId, stationKey) as MeasurementRow[];
+  }
+  return db
+    .prepare('SELECT * FROM trace_measurements WHERE shell_id = ? ORDER BY station_key, field')
+    .all(shellId) as MeasurementRow[];
+}
+
+/** Bir istasyonun en son yazdığı ölçümler (istasyon sayfasında "son ölçümler" listesi) */
+export function listStationMeasurements(stationKey: string, limit = 20): MeasurementRow[] {
+  const db = getDb();
+  return db
+    .prepare('SELECT * FROM trace_measurements WHERE station_key = ? ORDER BY updated_at DESC, id DESC LIMIT ?')
+    .all(stationKey, Math.min(limit, 200)) as MeasurementRow[];
+}
+
+export function updateMeasurement(id: number, value: number | string): MeasurementRow | undefined {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM trace_measurements WHERE id = ?').get(id) as MeasurementRow | undefined;
+  if (!existing) return undefined;
+  const num = typeof value === 'number' ? value : null;
+  const text = typeof value === 'number' ? null : String(value);
+  db.prepare(
+    `UPDATE trace_measurements SET value_num = ?, value_text = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(num, text, id);
+  return db.prepare('SELECT * FROM trace_measurements WHERE id = ?').get(id) as MeasurementRow | undefined;
+}
+
+export function deleteMeasurement(id: number): MeasurementRow | undefined {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM trace_measurements WHERE id = ?').get(id) as MeasurementRow | undefined;
+  if (!existing) return undefined;
+  db.prepare('DELETE FROM trace_measurements WHERE id = ?').run(id);
+  return existing;
 }
 
 // ─── Alarmlar ───────────────────────────────────────────────────────────────
@@ -567,71 +545,84 @@ export function listQrHistory(limit = 24): ProductRow[] {
   return listProducts({ limit });
 }
 
-export function logQrPrint(_productId: string, _qrContent: string, _userId: number): void {
-  // QR yazdırma kaydı shells.history üzerinde istasyon adımı ile tutulmaktadır.
-}
-
-// ─── İstasyon çalışma bağlamı (runtime, bellek içi) ──────────────────────
+// ─── İstasyon çalışma durumu (trace_station_runtime — DB'de kalıcı) ─────────
 
 /**
- * Operatörün istasyon sayfasında onayladığı araba (trolley) ve son okuttuğu
- * ürün (product). PLC Data trigger'ı veriyi AKTİF ürüne yazar; trolley_read
- * ürünü AKTİF arabaya işler. Bellek içindedir — sunucu yeniden başlatılırsa
- * operatör arabayı/ürünü yeniden onaylar.
+ * İstasyonun son okuduğu araba + son yakaladığı veri. Bellek-içi DEĞİL,
+ * veritabanında tutulur — sunucu yeniden başlatılsa bile korunur.
+ * Trolley Okuma istasyonunun yazdığı son araba, Trolley-Shell Eşleştirme
+ * istasyonu tarafından okunur (getLastReadTrolleyCode).
  */
 export interface LastCapture {
-  productId: string;
-  data: Record<string, unknown>;
-  slot: number | null;
-  at: string; // ISO zaman damgası
+  at: string;                          // ISO zaman damgası
+  summary: string;                     // örn. 'TR-001' veya 'SH-… / 4 ürün'
+  data: Record<string, unknown>;       // alan adı → değer
+  extra?: Record<string, unknown>;     // slot/satır vb. ek bilgi
 }
 
-export interface StationContext {
-  trolleyId: number | null;
-  trolleyCode: string | null;
-  productId: string | null;
-  /** PLC Data ile son yakalanan veri (trigger'dan) — UI'da gösterim için */
-  lastCapture: LastCapture | null;
+export interface StationRuntime {
+  station_id: number;
+  trolley_id: string | null;
+  last_capture: string | null; // JSON (LastCapture)
+  updated_at: string;
 }
 
-const stationContexts = new Map<number, StationContext>();
-
-function emptyContext(): StationContext {
-  return { trolleyId: null, trolleyCode: null, productId: null, lastCapture: null };
+export function getRuntime(stationId: number): StationRuntime {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM trace_station_runtime WHERE station_id = ?').get(stationId) as StationRuntime | undefined;
+  return row ?? { station_id: stationId, trolley_id: null, last_capture: null, updated_at: '' };
 }
 
-export function getStationContext(stationId: number): StationContext {
-  return stationContexts.get(stationId) ?? emptyContext();
-}
-
-export function setActiveTrolley(stationId: number, trolleyId: number, trolleyCode: string): void {
-  const ctx = stationContexts.get(stationId) ?? emptyContext();
-  ctx.trolleyId = trolleyId;
-  ctx.trolleyCode = trolleyCode;
-  stationContexts.set(stationId, ctx);
-}
-
-export function clearActiveTrolley(stationId: number): void {
-  const ctx = stationContexts.get(stationId);
-  if (ctx) {
-    ctx.trolleyId = null;
-    ctx.trolleyCode = null;
+export function getLastCapture(stationId: number): LastCapture | null {
+  const rt = getRuntime(stationId);
+  if (!rt.last_capture) return null;
+  try {
+    return JSON.parse(rt.last_capture) as LastCapture;
+  } catch {
+    return null;
   }
 }
 
-export function setActiveProduct(stationId: number, productId: string | null): void {
-  const ctx = stationContexts.get(stationId) ?? emptyContext();
-  ctx.productId = productId;
-  stationContexts.set(stationId, ctx);
+export function setRuntimeTrolley(stationId: number, trolleyCode: string | null): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO trace_station_runtime (station_id, trolley_id, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(station_id) DO UPDATE SET trolley_id = excluded.trolley_id, updated_at = datetime('now')`
+  ).run(stationId, trolleyCode);
 }
 
-export function clearActiveProduct(stationId: number): void {
-  const ctx = stationContexts.get(stationId);
-  if (ctx) ctx.productId = null;
+export function setRuntimeCapture(stationId: number, capture: LastCapture): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO trace_station_runtime (station_id, last_capture, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(station_id) DO UPDATE SET last_capture = excluded.last_capture, updated_at = datetime('now')`
+  ).run(stationId, JSON.stringify(capture));
 }
 
-export function setLastCapture(stationId: number, capture: LastCapture): void {
-  const ctx = stationContexts.get(stationId) ?? emptyContext();
-  ctx.lastCapture = capture;
-  stationContexts.set(stationId, ctx);
+/**
+ * Trolley Okuma istasyon(lar)ında en son okunan araba kodu.
+ * Trolley-Shell Eşleştirme istasyonu arabayı buradan alır.
+ */
+export function getLastReadTrolleyCode(): string | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT r.trolley_id FROM trace_station_runtime r
+       JOIN trace_stations s ON s.id = r.station_id
+       WHERE s.type = 'trolley_read' AND r.trolley_id IS NOT NULL AND s.is_active = 1
+       ORDER BY r.updated_at DESC LIMIT 1`
+    )
+    .get() as { trolley_id: string } | undefined;
+  return row?.trolley_id ?? null;
+}
+
+// ─── PLC tag yardımcıları ───────────────────────────────────────────────────
+
+/** PLC tag adını çözer (ölçüm alan adı olarak kullanılır). */
+export function getTagName(tagId: number): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT name FROM plc_tags WHERE id = ?').get(tagId) as { name: string } | undefined;
+  return row?.name ?? null;
 }

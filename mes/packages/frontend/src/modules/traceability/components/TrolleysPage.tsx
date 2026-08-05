@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { Alert, Button, Card, ConfirmDialog, Input, Modal, useToast } from '../../../core/components/common';
-import { traceService, type Trolley } from '../services/trace.service';
+import { Alert, Badge, Button, Card, ConfirmDialog, Input, Modal, useToast } from '../../../core/components/common';
+import { traceService, type Station, type Trolley } from '../services/trace.service';
+import MeasurementEditor from './MeasurementEditor';
 
 export default function TrolleysPage() {
   const { t } = useTranslation();
   const toast = useToast();
   const [trolleys, setTrolleys] = useState<Trolley[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -19,10 +21,19 @@ export default function TrolleysPage() {
   const [deleteTarget, setDeleteTarget] = useState<Trolley | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Slot detay pop-up'ı — slottaki shell'in TÜM istasyon ölçümleri (ekle/düzenle/sil)
+  const [selectedSlot, setSelectedSlot] = useState<{ trolley: Trolley; slotNumber: number; productId?: string } | null>(null);
+  const [measureStationKey, setMeasureStationKey] = useState('');
+  const [detailTick, setDetailTick] = useState(0);
+
   const load = useCallback(async () => {
     try {
-      const { trolleys: tr } = await traceService.listTrolleys();
+      const [{ trolleys: tr }, { stations: st }] = await Promise.all([
+        traceService.listTrolleys(),
+        traceService.listStations(),
+      ]);
       setTrolleys(tr);
+      setStations(st.filter((s) => s.type !== 'qr_generate' && s.type !== 'legacy'));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -126,6 +137,10 @@ export default function TrolleysPage() {
                       key={i}
                       className={`trace-slot${slot ? ' filled' : ''}`}
                       title={slot ? slot.product_id : t('trace.emptySlot')}
+                      onClick={() => {
+                        setSelectedSlot({ trolley: tr, slotNumber: i + 1, productId: slot?.product_id });
+                        setMeasureStationKey(stations[0]?.key ?? '');
+                      }}
                     >
                       {i + 1}
                     </div>
@@ -165,6 +180,54 @@ export default function TrolleysPage() {
         onConfirm={() => void handleDeleteTrolley()}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* ─── Slot detay pop-up'ı — shell ölçümleri (ekle/düzenle/sil) ─── */}
+      <Modal
+        open={selectedSlot !== null}
+        title={`${selectedSlot?.trolley.code ?? ''} — ${t('trace.slotDetails', { slot: selectedSlot?.slotNumber })}`}
+        onClose={() => setSelectedSlot(null)}
+      >
+        {selectedSlot?.productId ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }} key={detailTick}>
+            <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <div>
+                <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.productId')}</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                  {selectedSlot.productId}
+                </div>
+              </div>
+              <Badge variant="info">#{selectedSlot.slotNumber}</Badge>
+            </div>
+
+            {/* İstasyon seçici + o istasyonun ölçümleri */}
+            <div className="form-group">
+              <span className="form-label">{t('trace.station')}</span>
+              <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
+                {stations.map((s) => (
+                  <Button
+                    key={s.key}
+                    small
+                    variant={measureStationKey === s.key ? 'primary' : 'ghost'}
+                    onClick={() => setMeasureStationKey(s.key)}
+                  >
+                    {s.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {measureStationKey && (
+              <MeasurementEditor
+                shellId={selectedSlot.productId}
+                stationKey={measureStationKey}
+                onChanged={() => setDetailTick((n) => n + 1)}
+              />
+            )}
+          </div>
+        ) : (
+          <Alert variant="info">{t('trace.slotEmptyManualHint')}</Alert>
+        )}
+      </Modal>
     </div>
   );
 }

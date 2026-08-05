@@ -1,51 +1,64 @@
 import { workerManager } from '../plc-gateway/workers/worker.manager.js';
-import { getDb } from '../../core/database/connection.js';
 import { getSetting } from '../system-settings/settings.service.js';
 import { qrToSvgPath } from './qr/qrcode.js';
 import {
-  addAlarm,
   addStationRecord,
-  advanceProduct,
   assignTrolleySlot,
-  createBatch,
   createProduct,
   generateProductId,
-  getNextStationForProduct,
+  getLastReadTrolleyCode,
   getProductByProductId,
   getStation,
-  getStationByKey,
-  getStationContext,
-  getTrolley,
+  getTagName,
   getTrolleyByCode,
   getTrolleySlots,
-  hasRecord,
   listStations,
-  nextFreeSlot,
-  parseCapabilities,
   parseConfig,
-  setActiveProduct,
-  clearActiveProduct,
-  setLastCapture,
-  setProductStatus,
-  type ProductRow,
+  releaseTrolley,
+  setRuntimeCapture,
+  setRuntimeTrolley,
+  upsertMeasurement,
+  type StationConfig,
   type StationRow,
 } from './trace.service.js';
 
 /**
- * Station Engine: istasyonun `capabilities`'ine göre işlem doğrular ve yürütür.
- * Task Management: zorunlu görevler tamamlanmadan ürün bir sonraki istasyona ilerleyemez.
+ * Station Engine — istasyon TİPİNE göre çalışır (yetenek sistemi kaldırıldı).
  *
- * Yetenek modeli:
- * - qr_generate: QR üret + yazdır (ürün oluşturur).
- * - trolley_read (Araba Okuma): önceden onaylanmış AKTİF arabaya ürün işler.
- * - plc_acquire (PLC Data): ürün okutulunca AKTİF ürün olur; trigger biti
- *   true olunca seçili tag'ler PLC'den okunup ürüne yazılır (capturePlcData).
+ * Her PLC'li istasyon standart tag sözleşmesini kullanır:
+ *   ShellId / TrolleyId / SlotNumber / RowNumber / Trigger / Data/<tagAdı>
+ *   Sonuç: Ack(bool), ErrorCode(int), ErrorMessage(string), Busy(bool)
+ *
+ * Akış (PLC tetikleme):
+ *   Trigger yükselen kenar → önceki sonuçlar temizlenir + Busy=true →
+ *   sözleşme tag'leri okunur → tip handler'ı çalışır →
+ *   başarıda Ack=true / hatada ErrorCode+ErrorMessage → Busy=false →
+ *   Trigger=false (handshake — PLC yeniden tetikleyebilir).
+ *
+ * Akış (manuel tetikleme — web arayüzü):
+ *   Aynı handler'lar payload ile çalışır; PLC tag okuma/yazma YAPILMAZ.
+ *   Böylece PLC'den hiç veri gelmemiş olsa bile web'den veri girilebilir.
  */
+
+// ─── Hata kodları (ErrorCode int sözleşmesi) ────────────────────────────────
+
+export const PLC_ERR = {
+  NONE: 0,
+  SHELL_NOT_FOUND: 1,    // Shell ID sistemde kayıtlı değil
+  TROLLEY_NOT_FOUND: 2,  // Trolley ID sistemde kayıtlı değil
+  SLOT_INVALID: 3,       // Slot numarası geçersiz / kapasite dışı
+  NO_ACTIVE_TROLLEY: 4,  // Trolley Okuma'da okunmuş araba yok
+  EMPTY_TARGET: 5,       // Hedefte ürün yok (satır/araba boş)
+  PLC_READ_ERROR: 6,     // PLC tag'i okunamadı
+  INVALID_DATA: 7,       // Zorunlu veri eksik/geçersiz
+  SLOT_OCCUPIED: 8,      // Slot başka bir shell tarafından dolu
+} as const;
 
 export class StationError extends Error {
   constructor(
     public code: string,
     message: string,
+    public errorCode: number = PLC_ERR.INVALID_DATA,
     public details?: Record<string, unknown>
   ) {
     super(message);
@@ -53,631 +66,505 @@ export class StationError extends Error {
   }
 }
 
-export interface ScanInput {
-  stationKey: string;
-  productId?: string;
-  trolleyCode?: string;
+// ─── Girdi/çıktı tipleri ────────────────────────────────────────────────────
+
+export interface TriggerDataItem {
+  field: string;                                  // ölçüm alanı adı (tag adı veya manuel)
+  tagId?: number;                                 // PLC tag id (varsa)
+  value: number | string | boolean | null;
+}
+
+export interface TriggerInput {
+  shellId?: string;
+  trolleyId?: string;
   slotNumber?: number;
-  status?: 'ok' | 'nok';
-  batchNo?: string;
-  data?: Record<string, unknown>;
-  direction?: 'entry' | 'exit'; // wait_control için
+  rowNumber?: number;
+  data: TriggerDataItem[];
 }
 
-export interface ScanResult {
+export interface QrLabelResult {
+  productId: string;
+  qrContent: string;
+  svgPath: string;
+  size: number;
+  widthMm: number;
+  heightMm: number;
+}
+
+export interface TriggerResult {
   ok: boolean;
-  productId?: string;
-  qrLabel?: { productId: string; svgPath: string; size: number };
   message?: string;
-  advanced?: boolean;
-  alarm?: boolean;
+  errorCode?: number;
+  qrLabel?: QrLabelResult;
 }
 
-// ─── PLC bridge ─────────────────────────────────────────────────────────────
-
-async function readPlcValue(plcId: number, tagId: number): Promise<number | boolean | string | null> {
-  return workerManager.readTag(plcId, tagId);
+export interface ManualPayload {
+  shellId?: string;
+  trolleyId?: string;
+  slotNumber?: number;
+  rowNumber?: number;
+  data?: Record<string, unknown>;
 }
 
-async function writePlcValue(plcId: number, tagId: number, value: number | boolean | string): Promise<void> {
-  return workerManager.writeTag(plcId, tagId, value);
+// ─── Yardımcılar ────────────────────────────────────────────────────────────
+
+/** TriggerInput.data → { alan: değer } (history kaydı + lastCapture için) */
+function dataToRecord(data: TriggerDataItem[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const d of data) {
+    if (d.value !== null && d.value !== undefined) out[d.field] = d.value;
+  }
+  return out;
 }
 
-// ─── Task Management ────────────────────────────────────────────────────────
-
-/**
- * Ürünün mevcut istasyondaki zorunlu görevleri tamamlanıp tamamlanmadığını kontrol eder.
- * Tamamsa ürünü bir sonraki istasyona ilerletir (veya rotanın sonundaysa 'completed' yapar).
- */
-function tryAdvance(product: ProductRow, station: StationRow): boolean {
-  const caps = parseCapabilities(station.capabilities);
-
-  // Zorunlu görevler
-  if (caps.includes('ok_nok') && !hasRecord(product.product_id, station.id, 'ok')) {
-    // NOK ile reddedildiyse ilerleme yok
-    if (hasRecord(product.product_id, station.id, 'nok')) return false;
-    return false; // henüz OK verilmedi
+/** Ölçümleri shell'e yazar (UPSERT). Null değerler atlanır. */
+function writeMeasurements(
+  station: StationRow,
+  shellId: string,
+  data: TriggerDataItem[],
+  source: 'plc' | 'manual'
+): void {
+  for (const d of data) {
+    if (d.value === null || d.value === undefined) continue;
+    upsertMeasurement({
+      shellId,
+      stationKey: station.key,
+      field: d.field,
+      tagId: d.tagId ?? null,
+      value: d.value,
+      source,
+    });
   }
-  if (caps.includes('plc_acquire') && !hasRecord(product.product_id, station.id, 'done')) {
-    return false; // PLC verisi henüz ürüne yazılmadı (trigger bekleniyor)
-  }
-  if (caps.includes('batch_assign') && !hasRecord(product.product_id, station.id)) {
-    return false; // batch bağlanmadı
-  }
-  if (caps.includes('wait_control') && !hasRecord(product.product_id, station.id, 'ok')) {
-    return false; // bekleme tamamlanmadı
-  }
-
-  // Tüm görevler tamam → ilerlet
-  advanceProduct(product.product_id);
-  const next = getNextStationForProduct({ ...product, current_step_index: product.current_step_index + 1 });
-  if (!next) {
-    setProductStatus(product.product_id, 'completed');
-  }
-  return true;
 }
 
-// ─── Capability işleyicileri ────────────────────────────────────────────────
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
-async function handleQrGenerate(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  const productId = input.productId?.trim() ? input.productId.trim() : generateProductId();
+// ─── İstasyon tipi handler'ları ─────────────────────────────────────────────
+
+/** QR Kod Üretim — Shell ID üret/validate et, ürün oluştur, QR etiket döndür. */
+function handleQrGenerate(station: StationRow, shellIdInput: string | undefined, userId?: number): TriggerResult {
+  const productId = shellIdInput?.trim() ? shellIdInput.trim() : generateProductId();
   if (getProductByProductId(productId)) {
-    throw new StationError('VALIDATION', `Bu Shell ID zaten kullanılmaktadır: ${productId}`);
+    throw new StationError('VALIDATION', `Bu Shell ID zaten kullanılmaktadır: ${productId}`, PLC_ERR.INVALID_DATA);
   }
-  const product = createProduct({ productId, routeId: 1, qrContent: productId });
+  createProduct({ productId, qrContent: productId });
   const { path, size } = qrToSvgPath(productId);
   addStationRecord({
     productId,
     stationId: station.id,
     status: 'done',
     data: { qrContent: productId },
-    operatorId: userId,
+    operatorId: userId ?? null,
   });
+  const config = parseConfig(station.config);
   return {
     ok: true,
-    productId: product.product_id,
-    qrLabel: { productId, svgPath: path, size },
-    advanced: tryAdvance(product, station),
-  };
-}
-
-/**
- * Araba Okuma (trolley_read): AKTİF arabaya ürün işler.
- * - Önce istasyon sayfasında araba onaylanmış olmalı (setActiveTrolley).
- * - plc_acquire trigger'ı varsa slot + veri trigger ile gelir → ürün AKTİF olur, beklemede kalır.
- * - Trigger yoksa ürün sonraki boş slota otomatik atanır ve ilerletilir.
- */
-async function handleTrolleyRead(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  const ctx = getStationContext(station.id);
-  if (!ctx.trolleyId) {
-    throw new StationError('VALIDATION', 'Önce araba (trolley) onaylanmalıdır');
-  }
-  if (!input.productId) throw new StationError('VALIDATION', 'Ürün QR kodu taranmalıdır');
-
-  const product = getProductByProductId(input.productId);
-  if (!product) throw new StationError('NOT_FOUND', `Ürün bulunamadı: ${input.productId}`);
-
-  const caps = parseCapabilities(station.capabilities);
-  const config = parseConfig(station.config);
-  const hasTrigger = caps.includes('plc_acquire') && !!config.triggerTagId;
-
-  if (hasTrigger) {
-    // Ürün bu istasyonda AKTİF olur (PLC Data trigger'ı bu ürüne yazacak);
-    // slot + veri trigger ile gelecek → beklemede
-    setActiveProduct(station.id, product.product_id);
-    addStationRecord({
-      productId: product.product_id,
-      stationId: station.id,
-      trolleyId: ctx.trolleyId,
-      status: 'scanned',
-      data: {},
-      operatorId: userId,
-    });
-    return {
-      ok: true,
-      productId: product.product_id,
-      message: `Ürün ${ctx.trolleyCode} arabasına alındı — PLC verisi bekleniyor`,
-    };
-  }
-
-  // Trigger yok → sonraki boş slota otomatik ata (aktif ürün tutulmaz)
-  const trolley = getTrolley(ctx.trolleyId);
-  if (!trolley) throw new StationError('NOT_FOUND', 'Aktif araba bulunamadı');
-  const slot = nextFreeSlot(trolley.id, trolley.slot_count);
-  if (!slot) {
-    throw new StationError('VALIDATION', `Araba ${trolley.code} dolu (${trolley.slot_count}/${trolley.slot_count}) — yeni araba onaylayın`);
-  }
-  assignTrolleySlot(trolley.id, slot, product.product_id);
-  addStationRecord({
-    productId: product.product_id,
-    stationId: station.id,
-    trolleyId: trolley.id,
-    status: 'done',
-    data: { slotNumber: slot },
-    operatorId: userId,
-  });
-
-  return { ok: true, productId: product.product_id, advanced: tryAdvance(product, station) };
-}
-
-/**
- * PLC Data (plc_acquire) taraması: ürün AKTİF olur.
- * Asıl veri, trigger biti true olunca capturePlcData ile yazılır.
- */
-async function handlePlcAcquireScan(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  if (!input.productId) throw new StationError('VALIDATION', 'Ürün QR kodu taranmalıdır');
-  const product = getProductByProductId(input.productId);
-  if (!product) throw new StationError('NOT_FOUND', `Ürün bulunamadı: ${input.productId}`);
-
-  setActiveProduct(station.id, product.product_id);
-  addStationRecord({
-    productId: product.product_id,
-    stationId: station.id,
-    status: 'scanned',
-    data: {},
-    operatorId: userId,
-  });
-
-  return { ok: true, productId: product.product_id, message: 'Ürün aktif — PLC verisi bekleniyor' };
-}
-
-/**
- * PLC Data trigger yakalandığında çağrılır (plc-data-watcher).
- * Trigger biti true olduğunda config'deki dataTagIds değerlerini PLC'den okuyup
- * istasyonun AKTİF ürününe yazar. Slot/pozisyon bilgisi de dataTagIds içinde
- * yer alır; scan modunda aktif araba varsa ürün sonraki boş slota atanır.
- */
-export async function capturePlcData(stationId: number): Promise<void> {
-  const station = getStation(stationId);
-  if (!station) return;
-  const config = parseConfig(station.config);
-  if (!config.plcId || !config.triggerTagId) return;
-
-  const plcId = config.plcId;
-  const triggerTagId = config.triggerTagId;
-
-  // Handshake: işlem bitince trigger'ı false'a çek → PLC "okuma bitti" anlar ve
-  // yeni değerleri trigger edebilir. Watcher false bildiriminde otomatik re-arm olur.
-  const acknowledge = async () => {
-    try {
-      await writePlcValue(plcId, triggerTagId, false);
-    } catch {
-      // trigger yazılamazsa (salt okunur) yok say
-    }
-  };
-
-  const ctx = getStationContext(stationId);
-  const source = config.shellIdSource ?? 'plc';
-
-  // ─── Hedef ürün(ler)i Shell ID kaynağına göre belirle ───
-  const targets: ProductRow[] = [];
-
-  if (source === 'plc') {
-    // Senaryo 1: Shell ID doğrudan PLC tag'inden okunur
-    if (config.shellIdTagId) {
-      let shellId: string | null = null;
-      try {
-        const v = await readPlcValue(plcId, config.shellIdTagId);
-        shellId = v === null ? null : String(v).trim();
-      } catch {
-        shellId = null;
-      }
-      if (shellId) {
-        const p = getProductByProductId(shellId);
-        if (p) targets.push(p);
-      }
-    }
-  } else if (source === 'trolley') {
-    // Senaryo 2: Trolley ID PLC tag'inden okunur (varsa) veya aktif araba bağlamından alınır
-    let trolleyId = ctx.trolleyId;
-    if (config.trolleyIdTagId) {
-      try {
-        const v = await readPlcValue(plcId, config.trolleyIdTagId);
-        if (v !== null && String(v).trim()) {
-          const trCode = String(v).trim();
-          const tr = getTrolleyByCode(trCode);
-          if (tr) trolleyId = tr.id;
-        }
-      } catch {
-        // fallback to ctx.trolleyId
-      }
-    }
-    if (trolleyId) {
-      const slots = getTrolleySlots(trolleyId);
-      const systemRowSize = Number(getSetting('row_size')) || 4;
-      const rowSize = config.rowSize ?? systemRowSize;
-      if (config.trolleyMatchMode === 'row' && config.rowTagId) {
-        // Satır bazlı: PLC'den satır numarası oku
-        let rowNum = 0;
-        try {
-          rowNum = Number(await readPlcValue(plcId, config.rowTagId)) || 0;
-        } catch {
-          rowNum = 0;
-        }
-        const rowIndex = Math.max(0, rowNum > 0 ? rowNum - 1 : 0);
-        const start = rowIndex * rowSize;
-        for (const s of slots) {
-          if (s.slot_number > start && s.slot_number <= start + rowSize) {
-            const p = getProductByProductId(s.product_id);
-            if (p) targets.push(p);
-          }
-        }
-      } else {
-        // Tüm ürünler: arabada o an bulunan her Shell ID'ye uygula
-        for (const s of slots) {
-          const p = getProductByProductId(s.product_id);
-          if (p) targets.push(p);
-        }
-      }
-    }
-  } else {
-    // 'scan': taranan AKTİF ürün
-    if (ctx.productId) {
-      const p = getProductByProductId(ctx.productId);
-      if (p) targets.push(p);
-    }
-  }
-
-  // Fallback: Hedef ürün henüz bulunamadıysa, istasyonun aktif ürününü veya üretilmiş son in_progress ürünü al
-  if (targets.length === 0) {
-    if (ctx.productId) {
-      const p = getProductByProductId(ctx.productId);
-      if (p) targets.push(p);
-    } else {
-      const db = getDb();
-      const row = db.prepare(`SELECT shell_id AS product_id FROM shells WHERE status = 'in_progress' ORDER BY id DESC LIMIT 1`).get() as { product_id: string } | undefined;
-      if (row) {
-        const p = getProductByProductId(row.product_id);
-        if (p) targets.push(p);
-      }
-    }
-  }
-
-  if (targets.length === 0) {
-    addAlarm({
-      stationId,
-      severity: 'warning',
-      message: `${station.name}: PLC trigger geldi ancak hedef ürün bulunamadı (kaynak: ${source})`,
-    });
-    await acknowledge();
-    return;
-  }
-
-  // ─── Yeniden tetik koruması (idempotency) ───
-  const pendingTargets = targets.filter((p) => !hasRecord(p.product_id, stationId, 'done'));
-  if (pendingTargets.length === 0) {
-    console.warn(
-      `[station.engine] ${station.name}: trigger yeniden geldi ancak hedef ürün(ler) zaten işlendi — mükerrer kayıt atlandı (${targets.map((t) => t.product_id).join(', ')})`
-    );
-    await acknowledge();
-    return;
-  }
-  targets.length = 0;
-  targets.push(...pendingTargets);
-
-  // ─── Veri tag'lerini taze oku ───
-  const data: Record<string, unknown> = {};
-  if (config.dataTagIds?.length) {
-    for (const tagId of config.dataTagIds) {
-      try {
-        data[`tag_${tagId}`] = await readPlcValue(plcId, tagId);
-      } catch {
-        data[`tag_${tagId}`] = null;
-      }
-    }
-  }
-
-  // ─── Hedef ürün(ler)e veriyi yaz + araba slotuna ata + ilerlet ───
-  for (const product of targets) {
-    // İstasyonda onaylı aktif araba (trolley) varsa ürünü YALNIZCA slotTagId ile slot numarasına bağla
-    if (ctx.trolleyId) {
-      if (!config.slotTagId) {
-        addAlarm({
-          productId: product.product_id,
-          trolleyId: ctx.trolleyId,
-          stationId,
-          severity: 'warning',
-          message: `${station.name}: Slot tag'i (slotTagId) yapılandırılmamış. Araba slot ataması yalnızca PLC slotTagId tag'inden yapılabilir.`,
-        });
-      } else {
-        let slot: number | null = null;
-        try {
-          const vSlot = await readPlcValue(plcId, config.slotTagId);
-          if (vSlot !== null && vSlot !== undefined && vSlot !== '') {
-            const num = Number(vSlot);
-            if (!isNaN(num) && num > 0) {
-              slot = num;
-            }
-          }
-        } catch {
-          slot = null;
-        }
-
-        if (!slot) {
-          addAlarm({
-            productId: product.product_id,
-            trolleyId: ctx.trolleyId,
-            stationId,
-            severity: 'warning',
-            message: `${station.name}: PLC'den slot numarası okunamadı veya geçersiz (tag #${config.slotTagId}). Slot ataması yapılamadı.`,
-          });
-        } else {
-          try {
-            assignTrolleySlot(ctx.trolleyId, slot, product.product_id);
-            console.log(`[station.engine] ${product.product_id} ürünü ${ctx.trolleyCode} arabasının #${slot} slotuna başarıyla atandı.`);
-          } catch (err) {
-            console.error(`[station.engine] Slot atama hatası:`, err);
-            addAlarm({
-              productId: product.product_id,
-              trolleyId: ctx.trolleyId,
-              stationId,
-              severity: 'warning',
-              message: `${station.name}: #${slot} slotuna araba ataması yapılamadı: ${err instanceof Error ? err.message : String(err)}`,
-            });
-          }
-        }
-      }
-    }
-    addStationRecord({
-      productId: product.product_id,
-      stationId,
-      trolleyId: ctx.trolleyId ?? null,
-      status: 'done',
-      data,
-    });
-    tryAdvance(product, station);
-  }
-
-  // Son yakalanan veriyi bağlama yaz (UI'da "verileri görebiliriz" için)
-  setLastCapture(stationId, {
-    productId: targets.length === 1 ? targets[0].product_id : `${targets.length} ürün`,
-    data,
-    slot: null,
-    at: new Date().toISOString(),
-  });
-
-  // Ürün işlendi → sonraki ürün için yeni okutma gerekir (scan modunda)
-  clearActiveProduct(stationId);
-
-  // Handshake: okuma bitti → trigger'ı false'a çek
-  await acknowledge();
-}
-
-async function handleOkNok(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  if (!input.productId) throw new StationError('VALIDATION', 'Ürün QR kodu taranmalıdır');
-  if (!input.status || (input.status !== 'ok' && input.status !== 'nok')) {
-    throw new StationError('VALIDATION', "OK veya NOK durumu seçilmelidir");
-  }
-
-  const product = getProductByProductId(input.productId);
-  if (!product) throw new StationError('NOT_FOUND', `Ürün bulunamadı: ${input.productId}`);
-
-  addStationRecord({
-    productId: product.product_id,
-    stationId: station.id,
-    status: input.status,
-    data: input.data ?? {},
-    operatorId: userId,
-  });
-
-  if (input.status === 'nok') {
-    setProductStatus(product.product_id, 'rejected');
-    addAlarm({
-      productId: product.product_id,
-      stationId: station.id,
-      severity: 'warning',
-      message: `${station.name} istasyonunda NOK işaretlendi`,
-    });
-    return { ok: true, productId: product.product_id, advanced: false, alarm: true };
-  }
-
-  return { ok: true, productId: product.product_id, advanced: tryAdvance(product, station) };
-}
-
-async function handleBatchAssign(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  if (!input.productId) throw new StationError('VALIDATION', 'Ürün QR kodu taranmalıdır');
-  if (!input.batchNo) throw new StationError('VALIDATION', 'Parti (batch) numarası taranmalıdır');
-
-  const product = getProductByProductId(input.productId);
-  if (!product) throw new StationError('NOT_FOUND', `Ürün bulunamadı: ${input.productId}`);
-
-  const config = parseConfig(station.config);
-  createBatch(input.batchNo, config.componentKind ?? 'material');
-
-  addStationRecord({
-    productId: product.product_id,
-    stationId: station.id,
-    status: 'done',
-    data: input.data ?? {},
-    batchNo: input.batchNo,
-    operatorId: userId,
-  });
-
-  return { ok: true, productId: product.product_id, advanced: tryAdvance(product, station) };
-}
-
-async function handleWaitControl(station: StationRow, input: ScanInput, userId: number): Promise<ScanResult> {
-  if (!input.trolleyCode) throw new StationError('VALIDATION', 'Araba (trolley) QR kodu taranmalıdır');
-  const trolley = getTrolleyByCode(input.trolleyCode);
-  if (!trolley) throw new StationError('NOT_FOUND', `Araba bulunamadı: ${input.trolleyCode}`);
-
-  const config = parseConfig(station.config);
-  const waitHours = config.waitHours ?? 24;
-  const direction = input.direction ?? 'entry';
-  const slots = getTrolleySlots(trolley.id);
-
-  if (direction === 'entry') {
-    // Giriş: zaman damgası kaydet
-    for (const s of slots) {
-      addStationRecord({
-        productId: s.product_id,
-        stationId: station.id,
-        trolleyId: trolley.id,
-        status: 'entry',
-        data: { entryAt: new Date().toISOString() },
-        operatorId: userId,
-      });
-    }
-    return { ok: true, message: `Giriş kaydedildi — ${waitHours} saat bekleme başladı` };
-  }
-
-  // Çıkış: bekleme süresi kontrolü
-  const first = slots[0];
-  if (!first) throw new StationError('NOT_FOUND', 'Arabada ürün bulunamadı');
-  const entryRec = hasRecord(first.product_id, station.id, 'entry');
-
-  // Giriş kaydı varsa süreyi hesapla
-  let elapsedHours = waitHours; // giriş kaydı yoksa (test) geçir
-  if (entryRec) {
-    const rec = getDb()
-      .prepare(
-        `SELECT created_at FROM trace_station_records
-         WHERE product_id = ? AND station_id = ? AND status = 'entry'
-         ORDER BY id DESC LIMIT 1`
-      )
-      .get(first.product_id, station.id) as { created_at: string } | undefined;
-    if (rec) {
-      const entryAt = new Date(rec.created_at.replace(' ', 'T') + 'Z').getTime();
-      elapsedHours = (Date.now() - entryAt) / (1000 * 60 * 60);
-    }
-  }
-
-  if (elapsedHours < waitHours) {
-    // Erken çıkış → alarm + PLC'ye alarm yaz + reddet
-    addAlarm({
-      trolleyId: trolley.id,
-      stationId: station.id,
-      severity: 'critical',
-      message: `Araba ${waitHours} saat dolmadan çıkarıldı (${elapsedHours.toFixed(1)} saat geçti)`,
-    });
-    if (config.plcId && config.alarmTagId) {
-      try {
-        await writePlcValue(config.plcId, config.alarmTagId, 1);
-      } catch {
-        // PLC alarm yazılamazsa yalnızca DB alarmı kalır
-      }
-    }
-    throw new StationError(
-      'WAIT_NOT_COMPLETE',
-      `Bekleme süresi tamamlanmadı — ${waitHours} saat gerekli, ${elapsedHours.toFixed(1)} saat geçti`,
-      { elapsedHours, waitHours }
-    );
-  }
-
-  // Süre tamam → tüm ürünlere OK
-  for (const s of slots) {
-    const product = getProductByProductId(s.product_id);
-    if (!product) continue;
-    addStationRecord({
-      productId: product.product_id,
-      stationId: station.id,
-      trolleyId: trolley.id,
-      status: 'ok',
-      data: { elapsedHours: Number(elapsedHours.toFixed(2)) },
-      operatorId: userId,
-    });
-    tryAdvance(product, station);
-  }
-
-  return { ok: true, message: `Kondisyonlama tamamlandı (${elapsedHours.toFixed(1)} saat)` };
-}
-
-// ─── Rota doğrulama ─────────────────────────────────────────────────────────
-
-function validateRoute(station: StationRow, product: ProductRow | undefined): void {
-  if (!product) return; // qr_generate gibi ürün gerektirmeyen istasyonlar
-  if (product.status === 'rejected') {
-    throw new StationError('ROUTE_REJECTED', `Ürün reddedilmiş durumda: ${product.product_id}`);
-  }
-  if (product.status === 'completed') {
-    throw new StationError('ROUTE_REJECTED', `Ürün zaten tamamlanmış: ${product.product_id}`);
-  }
-  const expected = getNextStationForProduct(product);
-  if (expected && expected.id !== station.id) {
-    throw new StationError(
-      'ROUTE_VIOLATION',
-      `Rota ihlali — ürün şu an '${expected.name}' istasyonunda olmalı, '${station.name}' istasyonunda işlem yapılamaz`,
-      { expectedStation: expected.key, attemptedStation: station.key }
-    );
-  }
-}
-
-// ─── Ana giriş noktası ──────────────────────────────────────────────────────
-
-export async function processScan(input: ScanInput, userId: number): Promise<ScanResult> {
-  const station = getStationByKey(input.stationKey);
-  if (!station) throw new StationError('NOT_FOUND', `İstasyon bulunamadı: ${input.stationKey}`);
-  if (station.is_active !== 1) throw new StationError('VALIDATION', `İstasyon devre dışı: ${station.name}`);
-
-  const caps = parseCapabilities(station.capabilities);
-  const product = input.productId ? getProductByProductId(input.productId) : undefined;
-
-  // Rota doğrulama (qr_generate hariç tüm istasyonlar için)
-  if (!caps.includes('qr_generate')) {
-    validateRoute(station, product);
-  }
-
-  // Capability'lere göre işle (öncelik sırası)
-  if (caps.includes('qr_generate')) return handleQrGenerate(station, input, userId);
-  if (caps.includes('trolley_read')) return handleTrolleyRead(station, input, userId);
-  if (caps.includes('wait_control')) return handleWaitControl(station, input, userId);
-  if (caps.includes('plc_acquire')) return handlePlcAcquireScan(station, input, userId);
-  if (caps.includes('batch_assign') && caps.includes('ok_nok')) {
-    // Manuel montaj: batch + ok_nok birlikte
-    if (input.batchNo) return handleBatchAssign(station, input, userId);
-    return handleOkNok(station, input, userId);
-  }
-  if (caps.includes('batch_assign')) return handleBatchAssign(station, input, userId);
-  if (caps.includes('ok_nok')) return handleOkNok(station, input, userId);
-
-  throw new StationError('VALIDATION', `İstasyonun desteklenen bir capability'si yok: ${station.name}`);
-}
-
-export async function createNewProduct(userId: number): Promise<{
-  product: ProductRow;
-  qrLabel: {
-    productId: string;
-    qrContent: string;
-    svgPath: string;
-    size: number;
-    widthMm: number;
-    heightMm: number;
-  };
-}> {
-  const stations = listStations();
-  const qrStation = stations.find((s) => parseCapabilities(s.capabilities).includes('qr_generate'));
-
-  if (qrStation) {
-    const res = await processScan({ stationKey: qrStation.key }, userId);
-    const productId = res.productId!;
-    const prod = getProductByProductId(productId)!;
-    const config = parseConfig(qrStation.config);
-    return {
-      product: prod,
-      qrLabel: {
-        productId,
-        qrContent: productId,
-        svgPath: res.qrLabel?.svgPath ?? '',
-        size: res.qrLabel?.size ?? 128,
-        widthMm: config.labelWidth ?? 50,
-        heightMm: config.labelHeight ?? 30,
-      },
-    };
-  }
-
-  const productId = generateProductId();
-  const product = createProduct({ productId, routeId: 1, qrContent: productId });
-  const { path, size } = qrToSvgPath(productId);
-
-  return {
-    product,
+    message: `Ürün oluşturuldu: ${productId}`,
     qrLabel: {
       productId,
       qrContent: productId,
       svgPath: path,
       size,
-      widthMm: 50,
-      heightMm: 30,
+      widthMm: config.labelWidth ?? 50,
+      heightMm: config.labelHeight ?? 30,
     },
+  };
+}
+
+/**
+ * Trolley Okuma — PLC'den yalnız TrolleyId gelir.
+ * Okunan araba trace_station_runtime'a DB'de yazılır; Trolley-Shell
+ * Eşleştirme istasyonu bu bilgiyi kullanır. clearOnRead aktifse arabanın
+ * önceki slot içeriği temizlenir (araba tekrar kullanımı; kapasite korunur).
+ */
+function handleTrolleyRead(station: StationRow, input: TriggerInput): TriggerResult {
+  if (!input.trolleyId) {
+    throw new StationError('VALIDATION', 'Trolley ID okunamadı veya boş', PLC_ERR.INVALID_DATA);
+  }
+  const trolley = getTrolleyByCode(input.trolleyId);
+  if (!trolley) {
+    throw new StationError('NOT_FOUND', `Araba kayıtlı değil: ${input.trolleyId}`, PLC_ERR.TROLLEY_NOT_FOUND);
+  }
+  const config = parseConfig(station.config);
+  if (config.clearOnRead !== false) {
+    releaseTrolley(trolley.id);
+  }
+  setRuntimeTrolley(station.id, trolley.code);
+  setRuntimeCapture(station.id, {
+    at: nowIso(),
+    summary: trolley.code,
+    data: {},
+  });
+  return { ok: true, message: `Araba okundu: ${trolley.code}` };
+}
+
+/** Funnel Sıkma — PLC'den ShellId + Data (funnel sıkma torku vb.) gelir. */
+function handleFunnelScrewing(
+  station: StationRow,
+  input: TriggerInput,
+  source: 'plc' | 'manual',
+  userId?: number
+): TriggerResult {
+  if (!input.shellId) {
+    throw new StationError('VALIDATION', 'Shell ID okunamadı veya boş', PLC_ERR.INVALID_DATA);
+  }
+  const product = getProductByProductId(input.shellId);
+  if (!product) {
+    throw new StationError('NOT_FOUND', `Shell kayıtlı değil: ${input.shellId}`, PLC_ERR.SHELL_NOT_FOUND);
+  }
+  writeMeasurements(station, product.product_id, input.data, source);
+  const record = dataToRecord(input.data);
+  addStationRecord({
+    productId: product.product_id,
+    stationId: station.id,
+    status: 'done',
+    data: record,
+    operatorId: userId ?? null,
+  });
+  setRuntimeCapture(station.id, { at: nowIso(), summary: product.product_id, data: record });
+  return { ok: true, message: `${product.product_id}: funnel verisi kaydedildi` };
+}
+
+/**
+ * Trolley-Shell Eşleştirme — PLC'den ShellId + SlotNumber gelir.
+ * Trolley Okuma istasyonunda en son okunan araba ile eşleştirilir;
+ * shells tablosunda trolley_id + slot_number doldurulur.
+ */
+function handleMatching(
+  station: StationRow,
+  input: TriggerInput,
+  _source: 'plc' | 'manual',
+  userId?: number
+): TriggerResult {
+  if (!input.shellId) {
+    throw new StationError('VALIDATION', 'Shell ID okunamadı veya boş', PLC_ERR.INVALID_DATA);
+  }
+  if (!input.slotNumber || input.slotNumber < 1) {
+    throw new StationError('VALIDATION', 'Slot numarası okunamadı veya geçersiz', PLC_ERR.SLOT_INVALID);
+  }
+  const trolleyCode = getLastReadTrolleyCode();
+  if (!trolleyCode) {
+    throw new StationError(
+      'VALIDATION',
+      'Trolley Okuma istasyonunda okunmuş araba yok — önce araba okutulmalı',
+      PLC_ERR.NO_ACTIVE_TROLLEY
+    );
+  }
+  const trolley = getTrolleyByCode(trolleyCode);
+  if (!trolley) {
+    throw new StationError('NOT_FOUND', `Okunan araba kayıtlı değil: ${trolleyCode}`, PLC_ERR.TROLLEY_NOT_FOUND);
+  }
+  const product = getProductByProductId(input.shellId);
+  if (!product) {
+    throw new StationError('NOT_FOUND', `Shell kayıtlı değil: ${input.shellId}`, PLC_ERR.SHELL_NOT_FOUND);
+  }
+  if (input.slotNumber > trolley.slot_count) {
+    throw new StationError(
+      'VALIDATION',
+      `Slot #${input.slotNumber} kapasite dışı (araba kapasitesi: ${trolley.slot_count})`,
+      PLC_ERR.SLOT_INVALID
+    );
+  }
+  // Slot başka bir shell tarafından dolu mu?
+  const occupant = getTrolleySlots(trolley.id).find((o) => o.slot_number === input.slotNumber);
+  if (occupant && occupant.product_id !== product.product_id) {
+    throw new StationError(
+      'CONFLICT',
+      `#${input.slotNumber} slotu dolu (${occupant.product_id}) — önce web arayüzünden düzeltin`,
+      PLC_ERR.SLOT_OCCUPIED
+    );
+  }
+  assignTrolleySlot(trolley.id, input.slotNumber, product.product_id);
+  setRuntimeTrolley(station.id, trolley.code);
+  const data = { trolleyId: trolley.code, slotNumber: input.slotNumber };
+  addStationRecord({
+    productId: product.product_id,
+    stationId: station.id,
+    trolleyId: trolley.id,
+    status: 'done',
+    data,
+    operatorId: userId ?? null,
+  });
+  setRuntimeCapture(station.id, { at: nowIso(), summary: `${product.product_id} → ${trolley.code}`, data });
+  return { ok: true, message: `${product.product_id} → ${trolley.code} #${input.slotNumber}` };
+}
+
+/**
+ * Dolum — PLC'den TrolleyId + RowNumber + Data (shell temperature vb.) gelir.
+ * Veri, arabanın belirtilen SATIRINDAKİ tüm shell'lere yazılır
+ * (1 satır = row_size yuva; genel ayar `row_size`, varsayılan 4; 1-tabanlı).
+ */
+function handleFilling(
+  station: StationRow,
+  input: TriggerInput,
+  source: 'plc' | 'manual',
+  userId?: number
+): TriggerResult {
+  if (!input.trolleyId) {
+    throw new StationError('VALIDATION', 'Trolley ID okunamadı veya boş', PLC_ERR.INVALID_DATA);
+  }
+  const trolley = getTrolleyByCode(input.trolleyId);
+  if (!trolley) {
+    throw new StationError('NOT_FOUND', `Araba kayıtlı değil: ${input.trolleyId}`, PLC_ERR.TROLLEY_NOT_FOUND);
+  }
+  if (!input.rowNumber || input.rowNumber < 1) {
+    throw new StationError('VALIDATION', 'Satır numarası okunamadı veya geçersiz', PLC_ERR.INVALID_DATA);
+  }
+  const rowSize = Number(getSetting('row_size')) || 4;
+  const start = (input.rowNumber - 1) * rowSize + 1;
+  const end = input.rowNumber * rowSize;
+  const targets = getTrolleySlots(trolley.id).filter(
+    (s) => s.slot_number >= start && s.slot_number <= end
+  );
+  if (targets.length === 0) {
+    throw new StationError(
+      'NOT_FOUND',
+      `${trolley.code} arabasının ${input.rowNumber}. satırında ürün yok (slot ${start}-${end})`,
+      PLC_ERR.EMPTY_TARGET
+    );
+  }
+  setRuntimeTrolley(station.id, trolley.code);
+  const record = { ...dataToRecord(input.data), row: input.rowNumber };
+  for (const t of targets) {
+    writeMeasurements(station, t.product_id, input.data, source);
+    addStationRecord({
+      productId: t.product_id,
+      stationId: station.id,
+      trolleyId: trolley.id,
+      status: 'done',
+      data: record,
+      operatorId: userId ?? null,
+    });
+  }
+  setRuntimeCapture(station.id, {
+    at: nowIso(),
+    summary: `${trolley.code} • Satır ${input.rowNumber} (${targets.length} ürün)`,
+    data: record,
+    extra: { row: input.rowNumber, count: targets.length },
+  });
+  return { ok: true, message: `${trolley.code} satır ${input.rowNumber}: ${targets.length} ürüne dolum verisi yazıldı` };
+}
+
+/**
+ * Problama — PLC'den TrolleyId + Data (ambient temperature vb.) gelir.
+ * Veri, arabadaki TÜM shell'lere yazılır.
+ */
+function handleProbing(
+  station: StationRow,
+  input: TriggerInput,
+  source: 'plc' | 'manual',
+  userId?: number
+): TriggerResult {
+  if (!input.trolleyId) {
+    throw new StationError('VALIDATION', 'Trolley ID okunamadı veya boş', PLC_ERR.INVALID_DATA);
+  }
+  const trolley = getTrolleyByCode(input.trolleyId);
+  if (!trolley) {
+    throw new StationError('NOT_FOUND', `Araba kayıtlı değil: ${input.trolleyId}`, PLC_ERR.TROLLEY_NOT_FOUND);
+  }
+  const targets = getTrolleySlots(trolley.id);
+  if (targets.length === 0) {
+    throw new StationError('NOT_FOUND', `${trolley.code} arabasında ürün yok`, PLC_ERR.EMPTY_TARGET);
+  }
+  setRuntimeTrolley(station.id, trolley.code);
+  const record = dataToRecord(input.data);
+  for (const t of targets) {
+    writeMeasurements(station, t.product_id, input.data, source);
+    addStationRecord({
+      productId: t.product_id,
+      stationId: station.id,
+      trolleyId: trolley.id,
+      status: 'done',
+      data: record,
+      operatorId: userId ?? null,
+    });
+  }
+  setRuntimeCapture(station.id, {
+    at: nowIso(),
+    summary: `${trolley.code} • ${targets.length} ürün`,
+    data: record,
+    extra: { count: targets.length },
+  });
+  return { ok: true, message: `${trolley.code}: ${targets.length} ürüne problama verisi yazıldı` };
+}
+
+// ─── PLC sözleşmesi okuma ───────────────────────────────────────────────────
+
+/** Sözleşme tag'lerini PLC'den okur (ShellId/TrolleyId/SlotNumber/RowNumber/Data). */
+async function readContract(plcId: number, config: StationConfig): Promise<TriggerInput> {
+  const readScalar = async (tagId?: number): Promise<number | boolean | string | null> => {
+    if (!tagId) return null;
+    try {
+      return await workerManager.readTag(plcId, tagId);
+    } catch (err) {
+      throw new StationError(
+        'PLC_READ',
+        `PLC tag'i okunamadı (#${tagId}): ${err instanceof Error ? err.message : String(err)}`,
+        PLC_ERR.PLC_READ_ERROR
+      );
+    }
+  };
+
+  const shellRaw = await readScalar(config.shellIdTagId);
+  const trolleyRaw = await readScalar(config.trolleyIdTagId);
+  const slotRaw = await readScalar(config.slotTagId);
+  const rowRaw = await readScalar(config.rowTagId);
+
+  // Data/<tagAdı> ölçüm alanları — alan adı = PLC tag adı
+  const data: TriggerDataItem[] = [];
+  if (config.dataTagIds?.length) {
+    for (const tagId of config.dataTagIds) {
+      let value: number | boolean | string | null = null;
+      try {
+        value = await workerManager.readTag(plcId, tagId);
+      } catch {
+        value = null; // tek bir ölçüm okunamasa akış durmasın
+      }
+      data.push({ field: getTagName(tagId) ?? `tag_${tagId}`, tagId, value });
+    }
+  }
+
+  const toNum = (v: number | boolean | string | null): number | undefined => {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
+  return {
+    shellId: shellRaw === null ? undefined : String(shellRaw).trim() || undefined,
+    trolleyId: trolleyRaw === null ? undefined : String(trolleyRaw).trim() || undefined,
+    slotNumber: toNum(slotRaw),
+    rowNumber: toNum(rowRaw),
+    data,
+  };
+}
+
+// ─── Ana giriş noktası ──────────────────────────────────────────────────────
+
+/**
+ * İstasyon tetikleyici — PLC trigger kenarı (plc-data-watcher) veya web
+ * arayüzünden manuel tetikleme (`source: 'manual'`, PLC'ye hiç yazılmaz).
+ */
+export async function handleStationTrigger(
+  stationId: number,
+  opts: { source: 'plc' | 'manual'; manual?: ManualPayload; userId?: number }
+): Promise<TriggerResult> {
+  const station = getStation(stationId);
+  if (!station) throw new StationError('NOT_FOUND', `İstasyon bulunamadı: #${stationId}`, PLC_ERR.INVALID_DATA);
+  const config = parseConfig(station.config);
+
+  // QR Kod Üretim — PLC sözleşmesi yok
+  if (station.type === 'qr_generate') {
+    return handleQrGenerate(station, opts.manual?.shellId, opts.userId);
+  }
+
+  // ─── Manuel tetikleme (web'den "PLC'den gelmiş gibi" veri girişi) ───
+  if (opts.source === 'manual') {
+    const m = opts.manual ?? {};
+    const input: TriggerInput = {
+      shellId: m.shellId?.trim() || undefined,
+      trolleyId: m.trolleyId?.trim() || undefined,
+      slotNumber: m.slotNumber,
+      rowNumber: m.rowNumber,
+      data: Object.entries(m.data ?? {}).map(([field, value]) => ({
+        field,
+        value: value as number | string | boolean | null,
+      })),
+    };
+    return dispatch(station, input, 'manual', opts.userId);
+  }
+
+  // ─── PLC tetikleme ───
+  if (!config.plcId) {
+    return { ok: false, message: 'İstasyonda PLC tanımlı değil', errorCode: PLC_ERR.INVALID_DATA };
+  }
+  const plcId = config.plcId;
+
+  const write = async (tagId: number | undefined, value: number | boolean | string): Promise<void> => {
+    if (!tagId) return;
+    try {
+      await workerManager.writeTag(plcId, tagId, value);
+    } catch {
+      // salt okunur tag'e yazılırsa akış durmasın
+    }
+  };
+
+  // 1) Yükselen kenar: önceki çevrimin sonuçlarını temizle + Busy=true
+  await write(config.ackTagId, false);
+  await write(config.errorCodeTagId, 0);
+  await write(config.errorMessageTagId, '');
+  await write(config.busyTagId, true);
+
+  // 2) Sonuç yazma + Busy=false + handshake (trigger=false)
+  const finish = async (errorCode: number, message: string): Promise<void> => {
+    await write(config.ackTagId, errorCode === PLC_ERR.NONE);
+    await write(config.errorCodeTagId, errorCode);
+    await write(config.errorMessageTagId, message);
+    await write(config.busyTagId, false);
+    await write(config.triggerTagId, false); // handshake — PLC yeniden tetikleyebilir
+  };
+
+  try {
+    const input = await readContract(plcId, config);
+    const result = await dispatch(station, input, 'plc');
+    await finish(PLC_ERR.NONE, '');
+    return result;
+  } catch (err) {
+    const errorCode = err instanceof StationError ? err.errorCode : PLC_ERR.INVALID_DATA;
+    const message = err instanceof Error ? err.message : String(err);
+    await finish(errorCode, message);
+    return { ok: false, message, errorCode };
+  }
+}
+
+/** Tip handler'ına yönlendirir. Hatalar StationError olarak yukarı fırlatılır. */
+async function dispatch(
+  station: StationRow,
+  input: TriggerInput,
+  source: 'plc' | 'manual',
+  userId?: number
+): Promise<TriggerResult> {
+  switch (station.type) {
+    case 'trolley_read':
+      return handleTrolleyRead(station, input);
+    case 'funnel_screwing':
+      return handleFunnelScrewing(station, input, source, userId);
+    case 'trolley_shell_matching':
+      return handleMatching(station, input, source, userId);
+    case 'filling':
+      return handleFilling(station, input, source, userId);
+    case 'probing':
+      return handleProbing(station, input, source, userId);
+    default:
+      throw new StationError('VALIDATION', `Desteklenmeyen istasyon tipi: ${station.type}`, PLC_ERR.INVALID_DATA);
+  }
+}
+
+// ─── Ürünler sayfası hızlı ürün ekleme ──────────────────────────────────────
+
+export async function createNewProduct(userId: number): Promise<{
+  product: ReturnType<typeof getProductByProductId>;
+  qrLabel: QrLabelResult;
+}> {
+  const qrStation = listStations().find((s) => s.type === 'qr_generate' && s.is_active === 1)
+    ?? listStations().find((s) => s.type === 'qr_generate');
+
+  if (qrStation) {
+    const res = await handleStationTrigger(qrStation.id, { source: 'manual', manual: {}, userId });
+    return {
+      product: getProductByProductId(res.qrLabel!.productId),
+      qrLabel: res.qrLabel!,
+    };
+  }
+
+  // QR istasyonu tanımlı değilse doğrudan üret
+  const productId = generateProductId();
+  createProduct({ productId, qrContent: productId });
+  const { path, size } = qrToSvgPath(productId);
+  return {
+    product: getProductByProductId(productId),
+    qrLabel: { productId, qrContent: productId, svgPath: path, size, widthMm: 50, heightMm: 30 },
   };
 }

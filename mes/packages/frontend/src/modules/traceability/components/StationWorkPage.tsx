@@ -1,43 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CheckCircle2, Printer, QrCode as QrIcon, RefreshCw } from 'lucide-react';
-import { Alert, Badge, Button, Input, Modal, Table, useToast } from '../../../core/components/common';
-import { traceService, type LastCapture, type QrHistoryItem, type ScanInput, type Station, type TrolleyContext, type TrolleyProductItem } from '../services/trace.service';
+import { ArrowLeft, CheckCircle2, Pencil, Printer, QrCode as QrIcon, Trash2, Zap } from 'lucide-react';
+import { Alert, Badge, Button, Input, Modal, useToast } from '../../../core/components/common';
+import {
+  traceService,
+  type LastCapture,
+  type Measurement,
+  type QrHistoryItem,
+  type Station,
+  type StationContextDto,
+  type TrolleyProductItem,
+} from '../services/trace.service';
 import { tagService, type PlcTag } from '../../plc-gateway/services/plc.service';
 import QrCode from './QrCode';
 import QrLabelModal, { type QrLabelData } from './QrLabelModal';
+import TrolleyGrid from './TrolleyGrid';
+import MeasurementEditor from './MeasurementEditor';
 
+/**
+ * StationWorkPage — istasyon TİPİNE göre özel çalışma ekranı.
+ * Tüm istasyonlar PLC'den veri alır (trigger) VE web'den manuel veri girişi
+ * destekler ("PLC'den gelmiş gibi"). Ölçümler düzenlenebilir/silinebilir.
+ */
 export default function StationWorkPage() {
   const { t } = useTranslation();
-  const toast = useToast();
   const { stationKey } = useParams<{ stationKey: string }>();
 
   const [station, setStation] = useState<Station | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message?: string; alarm?: boolean } | null>(null);
 
-  // ─── Yetenek kartları state'i ───
-  // trolley_read
-  const [trolleyInput, setTrolleyInput] = useState('');
-  const [trolleyCtx, setTrolleyCtx] = useState<TrolleyContext | null>(null);
-  const [trolleyItems, setTrolleyItems] = useState<TrolleyProductItem[]>([]);
-
-  // Slot Tıklama Pop-up Modal State'i
-  const [selectedSlot, setSelectedSlot] = useState<{ slotNumber: number; product?: TrolleyProductItem } | null>(null);
-
-  // plc_acquire
+  // Çalışma bağlamı (son araba + son yakalanan veri) — PLC'li istasyonlarda poll edilir
+  const [ctx, setCtx] = useState<StationContextDto | null>(null);
   const [plcTags, setPlcTags] = useState<PlcTag[]>([]);
-
-  // QR etiket önizleme + geçmiş + oluşturma modalı
-  const [qrLabel, setQrLabel] = useState<QrLabelData | null>(null);
-  const [qrModalOpen, setQrModalOpen] = useState(false);
-  const [history, setHistory] = useState<QrHistoryItem[]>([]);
-  const [shellModalOpen, setShellModalOpen] = useState(false);
-  const [customShellId, setCustomShellId] = useState('');
-  const [shellError, setShellError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,11 +52,236 @@ export default function StationWorkPage() {
     void load();
   }, [load]);
 
-  const caps = station?.capabilities ?? [];
-  const has = (c: string) => caps.includes(c as never);
-  const storageKey = station ? `trace_trolley_${station.key}` : '';
+  const isPlcStation = station ? station.type !== 'qr_generate' && station.type !== 'legacy' : false;
 
-  // ─── QR geçmişi ───
+  // PLC tag'lerini yükle (data alanı adları + önerilen ölçüm alanları için)
+  useEffect(() => {
+    if (!station?.config.plcId) return;
+    tagService
+      .list(station.config.plcId)
+      .then(({ tags }) => setPlcTags(tags))
+      .catch(() => setPlcTags([]));
+  }, [station]);
+
+  // Bağlamı yükle + 3 sn'de tazele (PLC trigger sonrası canlı güncellenir)
+  const refreshCtx = useCallback(async () => {
+    if (!station) return;
+    try {
+      const c = await traceService.getStationContext(station.key);
+      setCtx(c);
+    } catch {
+      // sessiz geç
+    }
+  }, [station]);
+
+  useEffect(() => {
+    if (!station || !isPlcStation) return;
+    void refreshCtx();
+    const id = setInterval(() => void refreshCtx(), 3000);
+    return () => clearInterval(id);
+  }, [station, isPlcStation, refreshCtx]);
+
+  // İstasyonun ölçüm alan adları (dataTagIds → tag adları)
+  const dataFieldNames = useMemo(
+    () =>
+      (station?.config.dataTagIds ?? [])
+        .map((id) => plcTags.find((x) => x.id === id)?.name)
+        .filter((n): n is string => Boolean(n)),
+    [station, plcTags]
+  );
+
+  if (loading) return <p className="text-muted">{t('common.loading')}</p>;
+  if (error || !station) return <Alert variant="danger">{error ?? t('trace.stationNotFound')}</Alert>;
+
+  return (
+    <div className={`trace-sim-wrapper${station.type === 'qr_generate' ? ' full-height-scroll' : ''}`}>
+      {/* ─── Üst Bar ─── */}
+      <div className="trace-sim-header">
+        <div className="flex items-center gap-3">
+          <Link to="/trace/stations" className="btn-icon" title={t('common.back')}>
+            <ArrowLeft size={18} />
+          </Link>
+          <div>
+            <h1 style={{ fontSize: 'var(--font-size-lg)', margin: 0, fontWeight: 700 }}>{station.name}</h1>
+            <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
+              key: <code>{station.key}</code>
+              {' • '}
+              <Badge variant="info">{t(`trace.type.${station.type}`, { defaultValue: station.type })}</Badge>
+            </div>
+          </div>
+        </div>
+
+        {ctx?.trolley && (
+          <div>
+            <span className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.activeTrolley')}: </span>
+            <strong style={{ fontSize: 'var(--font-size-md)', fontFamily: 'var(--font-mono)' }}>{ctx.trolley.code}</strong>
+            <span style={{ marginLeft: 8 }}>
+              <Badge variant="info">{ctx.trolley.slots.length} / {ctx.trolley.slotCount}</Badge>
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Tip bazlı özel panel ─── */}
+      {station.type === 'qr_generate' && <QrGeneratePanel station={station} />}
+      {station.type === 'trolley_read' && (
+        <TrolleyReadPanel station={station} ctx={ctx} onChanged={refreshCtx} />
+      )}
+      {station.type === 'funnel_screwing' && (
+        <FunnelScrewingPanel station={station} ctx={ctx} dataFields={dataFieldNames} onChanged={refreshCtx} />
+      )}
+      {station.type === 'trolley_shell_matching' && (
+        <MatchingPanel station={station} ctx={ctx} onChanged={refreshCtx} />
+      )}
+      {(station.type === 'filling' || station.type === 'probing') && (
+        <TrolleyDataPanel station={station} ctx={ctx} dataFields={dataFieldNames} onChanged={refreshCtx} />
+      )}
+      {!['qr_generate', 'trolley_read', 'funnel_screwing', 'trolley_shell_matching', 'filling', 'probing'].includes(station.type) && (
+        <Alert variant="warning">{t('trace.unknownTypeWork', { type: station.type })}</Alert>
+      )}
+    </div>
+  );
+}
+
+// ─── Son Yakalanan Veri kartı ────────────────────────────────────────────────
+
+function LastCaptureCard({ capture }: { capture: LastCapture | null | undefined }) {
+  const { t } = useTranslation();
+  return (
+    <div className="trace-panel-card">
+      <div className="trace-panel-title">
+        <Zap size={15} /> {t('trace.lastCapture')}
+      </div>
+      {!capture ? (
+        <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>{t('trace.noCapture')}</p>
+      ) : (
+        <>
+          <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}>{capture.summary}</div>
+          {Object.keys(capture.data).length > 0 && (
+            <div className="trace-capture-data">
+              {Object.entries(capture.data).map(([k, v]) => (
+                <div key={k} className="trace-capture-item">
+                  <span className="text-muted">{k}</span>
+                  <strong>{String(v)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="text-muted" style={{ fontSize: '11px', marginTop: 4 }}>
+            {new Date(capture.at).toLocaleString()}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Manuel Veri Girişi kartı ────────────────────────────────────────────────
+
+interface ManualEntryProps {
+  station: Station;
+  dataFields: string[];
+  /** Hangi kimlik alanları gösterilsin */
+  showShellId?: boolean;
+  showTrolleyId?: boolean;
+  showSlot?: boolean;
+  showRow?: boolean;
+  onChanged?: () => void;
+}
+
+function ManualEntryCard({ station, dataFields, showShellId, showTrolleyId, showSlot, showRow, onChanged }: ManualEntryProps) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [shellId, setShellId] = useState('');
+  const [trolleyId, setTrolleyId] = useState('');
+  const [slotNumber, setSlotNumber] = useState('');
+  const [rowNumber, setRowNumber] = useState('');
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const handleApply = async () => {
+    setBusy(true);
+    try {
+      const data: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(values)) {
+        if (!v.trim()) continue;
+        const num = Number(v);
+        data[k] = Number.isFinite(num) && v.trim() !== '' ? num : v;
+      }
+      const res = await traceService.triggerStation(station.key, {
+        shellId: shellId.trim() || undefined,
+        trolleyId: trolleyId.trim() || undefined,
+        slotNumber: slotNumber ? Number(slotNumber) : undefined,
+        rowNumber: rowNumber ? Number(rowNumber) : undefined,
+        data,
+      });
+      toast.success(res.message ?? t('common.success'));
+      setShellId('');
+      setSlotNumber('');
+      setRowNumber('');
+      setValues({});
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canApply =
+    (!showShellId || shellId.trim()) &&
+    (!showTrolleyId || trolleyId.trim()) &&
+    (!showSlot || Number(slotNumber) > 0) &&
+    (!showRow || Number(rowNumber) > 0);
+
+  return (
+    <div className="trace-panel-card">
+      <div className="trace-panel-title">
+        <Pencil size={15} /> {t('trace.manualEntry')}
+      </div>
+      <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 0 }}>{t('trace.manualEntryHint')}</p>
+      <div className="trace-manual-form">
+        {showShellId && (
+          <Input label={t('trace.shellId')} value={shellId} onChange={(e) => setShellId(e.target.value)} placeholder="SH-…" />
+        )}
+        {showTrolleyId && (
+          <Input label={t('trace.trolleyId')} value={trolleyId} onChange={(e) => setTrolleyId(e.target.value)} placeholder="TR-001" />
+        )}
+        {showSlot && (
+          <Input label={t('trace.slotNo')} type="number" min={1} value={slotNumber} onChange={(e) => setSlotNumber(e.target.value)} />
+        )}
+        {showRow && (
+          <Input label={t('trace.rowNo')} type="number" min={1} value={rowNumber} onChange={(e) => setRowNumber(e.target.value)} />
+        )}
+        {dataFields.map((f) => (
+          <Input
+            key={f}
+            label={f}
+            value={values[f] ?? ''}
+            onChange={(e) => setValues((prev) => ({ ...prev, [f]: e.target.value }))}
+          />
+        ))}
+      </div>
+      <Button className="mt-4" onClick={() => void handleApply()} disabled={busy || !canApply}>
+        <CheckCircle2 size={16} /> {t('trace.apply')}
+      </Button>
+    </div>
+  );
+}
+
+// ─── QR Kod Üretim paneli ────────────────────────────────────────────────────
+
+function QrGeneratePanel({ station }: { station: Station }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [qrLabel, setQrLabel] = useState<QrLabelData | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [history, setHistory] = useState<QrHistoryItem[]>([]);
+  const [shellModalOpen, setShellModalOpen] = useState(false);
+  const [customShellId, setCustomShellId] = useState('');
+  const [shellError, setShellError] = useState<string | null>(null);
+
   const loadHistory = useCallback(async () => {
     try {
       const { items } = await traceService.getQrHistory(24);
@@ -71,12 +292,10 @@ export default function StationWorkPage() {
   }, []);
 
   useEffect(() => {
-    if (has('qr_generate')) void loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [station]);
+    void loadHistory();
+  }, [loadHistory]);
 
-  // ─── QR üretme ön hazırlığı ───
-  const handlePrepareQrGeneration = async () => {
+  const handlePrepare = async () => {
     setBusy(true);
     setShellError(null);
     try {
@@ -90,16 +309,16 @@ export default function StationWorkPage() {
     }
   };
 
-  const handleCreateQrCode = async () => {
+  const handleCreate = async () => {
     const cleanId = customShellId.trim();
-    if (!cleanId || !station) return;
+    if (!cleanId) return;
     setBusy(true);
     setShellError(null);
     try {
-      const res = await traceService.scan({ stationKey: station.key, productId: cleanId });
+      const res = await traceService.triggerStation(station.key, { shellId: cleanId });
       if (res.ok && res.qrLabel) {
         setShellModalOpen(false);
-        setQrLabel(res.qrLabel);
+        setQrLabel({ productId: res.qrLabel.productId, svgPath: res.qrLabel.svgPath, size: res.qrLabel.size });
         setQrModalOpen(true);
         toast.success(t('trace.qrGenerated', { id: cleanId }));
         void loadHistory();
@@ -113,424 +332,402 @@ export default function StationWorkPage() {
     }
   };
 
-  // ─── trolley_read: kayıtlı arabayı geri yükle ───
-  useEffect(() => {
-    if (!station || !has('trolley_read')) return;
-    const restore = async () => {
-      try {
-        const { trolley, trolleyItems: items } = await traceService.getStationContext(station.key);
-        if (trolley) {
-          setTrolleyCtx(trolley);
-          if (items) setTrolleyItems(items);
-          localStorage.setItem(storageKey, trolley.code);
-          return;
-        }
-      } catch {
-        // yok say
-      }
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        try {
-          const { trolley } = await traceService.confirmTrolley(station.key, saved);
-          setTrolleyCtx(trolley);
-          const { trolleyItems: items } = await traceService.getStationContext(station.key);
-          if (items) setTrolleyItems(items);
-        } catch {
-          localStorage.removeItem(storageKey);
-        }
-      }
-    };
-    void restore();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [station]);
-
-  // ─── plc_acquire: tag isimlerini yükle ───
-  useEffect(() => {
-    if (!station || !has('plc_acquire') || !station.config.plcId) return;
-    tagService
-      .list(station.config.plcId)
-      .then(({ tags }) => setPlcTags(tags))
-      .catch(() => setPlcTags([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [station]);
-
-  // ─── Bağlamı periyodik tazele (araba slotları + aktif ürün + canlı veriler) ───
-  useEffect(() => {
-    if (!station || (!has('trolley_read') && !has('plc_acquire'))) return;
-    const id = setInterval(async () => {
-      try {
-        const { trolley, trolleyItems: items } = await traceService.getStationContext(station.key);
-        setTrolleyCtx(trolley);
-        if (items) setTrolleyItems(items);
-      } catch {
-        // sessiz geç
-      }
-    }, 3000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [station]);
-
-  // ─── Araba onayı ───
-  const handleConfirmTrolley = async () => {
-    if (!station || !trolleyInput.trim()) return;
-    setBusy(true);
-    try {
-      const { trolley } = await traceService.confirmTrolley(station.key, trolleyInput.trim());
-      setTrolleyCtx(trolley);
-      const { trolleyItems: items } = await traceService.getStationContext(station.key);
-      if (items) setTrolleyItems(items);
-      localStorage.setItem(storageKey, trolley.code);
-      setTrolleyInput('');
-      toast.success(t('trace.trolleyConfirmed', { code: trolley.code }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // ─── Araba Değiştir ───
-  const handleChangeTrolley = async () => {
-    setTrolleyCtx(null);
-    setTrolleyItems([]);
-    localStorage.removeItem(storageKey);
-    if (station) {
-      try {
-        await traceService.clearTrolley(station.key);
-      } catch {
-        // sessiz geç
-      }
-    }
-  };
-
-  const tagName = (id?: number) => plcTags.find((x) => x.id === id)?.name ?? (id ? `#${id}` : '—');
-  const isQrStation = has('qr_generate') && !has('trolley_read');
-
-  // Gerçek etiket boyutları (mm) — Yazdırma Pop-up'ı ile Birebir Aynı Etiket Görünümü
-  const labelW = station?.config.labelWidth && station.config.labelWidth > 0 ? station.config.labelWidth : 50;
-  const labelH = station?.config.labelHeight && station.config.labelHeight > 0 ? station.config.labelHeight : 30;
+  const labelW = station.config.labelWidth && station.config.labelWidth > 0 ? station.config.labelWidth : 50;
+  const labelH = station.config.labelHeight && station.config.labelHeight > 0 ? station.config.labelHeight : 30;
   const padMm = 2;
   const textMm = 6;
   const cardQrMm = Math.max(8, Math.min(labelW - padMm * 2, labelH - padMm * 2 - textMm));
 
-  if (loading) return <p className="text-muted">{t('common.loading')}</p>;
-  if (error || !station) return <Alert variant="danger">{error ?? t('trace.stationNotFound')}</Alert>;
-
   return (
-    <div className={`trace-sim-wrapper${isQrStation ? ' full-height-scroll' : ''}`}>
-      {/* ─── Top Bar: İstasyon & Araba Bilgisi ─── */}
-      <div className="trace-sim-header">
-        <div className="flex items-center gap-3">
-          <Link to="/trace/stations" className="btn-icon" title={t('common.back')}>
-            <ArrowLeft size={18} />
-          </Link>
-          <div>
-            <h1 style={{ fontSize: 'var(--font-size-lg)', margin: 0, fontWeight: 700 }}>{station.name}</h1>
-            <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
-              key: <code>{station.key}</code>
-              {station.config.triggerTagId ? ` • Trigger: ${tagName(station.config.triggerTagId)}` : ''}
-            </div>
+    <div className="trace-sim-body full-width-body">
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+        <div className="trace-qr-hero-banner">
+          <div className="trace-qr-hero-icon">
+            <QrIcon size={40} />
           </div>
+          <div className="trace-qr-hero-content">
+            <h2>{t('trace.qrGeneratorTitle')}</h2>
+            <p>{t('trace.qrGeneratorHint')}</p>
+          </div>
+          <button className="btn-qr-hero-action" onClick={() => void handlePrepare()} disabled={busy}>
+            <QrIcon size={24} />
+            <span>{t('trace.generateQr')}</span>
+          </button>
         </div>
 
-        {/* Aktif Araba Kontrolü (varsa) */}
-        {trolleyCtx && (
-          <div className="flex items-center gap-3">
-            <div>
-              <span className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.activeTrolley')}: </span>
-              <strong style={{ fontSize: 'var(--font-size-md)', fontFamily: 'var(--font-mono)' }}>{trolleyCtx.code}</strong>
-              <span style={{ marginLeft: 8 }}>
-                <Badge variant="info">
-                  {trolleyCtx.slots.length} / {trolleyCtx.slotCount} Dolu
-                </Badge>
-              </span>
-            </div>
-            <Button variant="ghost" className="btn-sm" onClick={() => void handleChangeTrolley()}>
-              <RefreshCw size={14} /> {t('trace.changeTrolley')}
-            </Button>
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>📜</span> {t('trace.qrHistory')}
+            </h3>
+            <Badge variant="info">{history.length}</Badge>
           </div>
-        )}
-      </div>
 
-      {result && (
-        <Alert variant={result.ok ? (result.alarm ? 'warning' : 'success') : 'danger'}>
-          {result.message}
-        </Alert>
-      )}
-
-      {/* ─── Simülasyon Gövdesi ─── */}
-      <div className={`trace-sim-body${isQrStation ? ' full-width-body' : ''}`}>
-        {isQrStation ? (
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-            {/* QR Kod Üretim Hero Banner */}
-            <div className="trace-qr-hero-banner">
-              <div className="trace-qr-hero-icon">
-                <QrIcon size={40} />
-              </div>
-              <div className="trace-qr-hero-content">
-                <h2>{t('trace.qrGeneratorTitle', { defaultValue: 'Shell ID & QR Kod Üretimi' })}</h2>
-                <p>
-                  {t('trace.qrGeneratorHint', {
-                    defaultValue: 'Sistem tarafından önerilen Shell ID\'yi kullanabilir veya kendi özel Shell ID\'nizi belirleyebilirsiniz.',
-                  })}
-                </p>
-              </div>
-              <button
-                className="btn-qr-hero-action"
-                onClick={() => void handlePrepareQrGeneration()}
-                disabled={busy}
-              >
-                <QrIcon size={24} />
-                <span>{t('trace.generateQr', { defaultValue: 'QR KOD ÜRET' })}</span>
-              </button>
-            </div>
-
-            {/* Son Üretilen QR Kodlar Izgarası */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📜</span> {t('trace.qrHistory', { defaultValue: 'Son Üretilen QR Kodlar' })}
-                </h3>
-                <Badge variant="info">{history.length} Ürün</Badge>
-              </div>
-
-              {history.length === 0 ? (
-                <Alert variant="info">{t('trace.noQrHistory', { defaultValue: 'Henüz üretilmiş QR kod bulunmamaktadır.' })}</Alert>
-              ) : (
-                <div className="trace-qr-history-grid">
-                  {history.map((item, idx) => (
-                    <div key={idx} className="trace-qr-card">
-                      <div className="trace-qr-card-header">
-                        <Badge variant={item.status === 'completed' ? 'success' : item.status === 'rejected' ? 'danger' : 'info'}>
-                          {t(`trace.status.${item.status}`, { defaultValue: item.status })}
-                        </Badge>
-                        {item.createdAt && (
-                          <span className="trace-qr-card-date">
-                            {new Date(item.createdAt + (item.createdAt.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Gerçek etiket önizleme konteyneri — Yazdırma Pop-up'ı ile BİREBİR AYNISI */}
-                      <div className="trace-qr-card-label-wrap">
-                        <div className="trace-qr-print" style={{ width: `${labelW}mm`, height: `${labelH}mm` }}>
-                          <QrCode svgPath={item.svgPath} size={item.size} sizeMm={cardQrMm} />
-                          <div className="trace-qr-print-text">{item.productId}</div>
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="ghost"
-                        className="w-full mt-1"
-                        onClick={() => {
-                          setQrLabel({ productId: item.productId, svgPath: item.svgPath, size: item.size });
-                          setQrModalOpen(true);
-                        }}
-                      >
-                        <Printer size={16} /> {t('trace.reprint', { defaultValue: 'Önizle & Yazdır' })}
-                      </Button>
+          {history.length === 0 ? (
+            <Alert variant="info">{t('trace.noQrHistory')}</Alert>
+          ) : (
+            <div className="trace-qr-history-grid">
+              {history.map((item) => (
+                <div key={item.productId} className="trace-qr-card">
+                  <div className="trace-qr-card-header">
+                    <Badge variant={item.status === 'completed' ? 'success' : item.status === 'rejected' ? 'danger' : 'info'}>
+                      {t(`trace.status.${item.status}`)}
+                    </Badge>
+                    {item.createdAt && (
+                      <span className="trace-qr-card-date">
+                        {new Date(item.createdAt + (item.createdAt.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="trace-qr-card-label-wrap">
+                    <div className="trace-qr-print" style={{ width: `${labelW}mm`, height: `${labelH}mm` }}>
+                      <QrCode svgPath={item.svgPath} size={item.size} sizeMm={cardQrMm} />
+                      <div className="trace-qr-print-text">{item.productId}</div>
                     </div>
-                  ))}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    className="w-full mt-1"
+                    onClick={() => {
+                      setQrLabel({ productId: item.productId, svgPath: item.svgPath, size: item.size });
+                      setQrModalOpen(true);
+                    }}
+                  >
+                    <Printer size={16} /> {t('trace.reprint')}
+                  </Button>
                 </div>
-              )}
+              ))}
             </div>
-          </div>
-        ) : !trolleyCtx ? (
-          <div style={{ maxWidth: 420, margin: 'auto', width: '100%' }}>
-            <h3 style={{ marginBottom: 'var(--space-4)', textAlign: 'center' }}>{t('trace.confirmTrolleyFirst')}</h3>
-            <Input
-              label={t('trace.trolleyCode')}
-              value={trolleyInput}
-              onChange={(e) => setTrolleyInput(e.target.value)}
-              placeholder="TR-001"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleConfirmTrolley();
-              }}
-            />
-            <Button className="w-full mt-4" onClick={() => void handleConfirmTrolley()} disabled={busy || !trolleyInput.trim()}>
-              <CheckCircle2 size={16} /> {t('common.confirm')}
-            </Button>
-          </div>
-        ) : (
-          <div className="trace-sim-grid">
-            {Array.from({ length: trolleyCtx.slotCount }, (_, i) => {
-              const slotNumber = i + 1;
-              const slotItem = trolleyItems.find((x) => x.slotNumber === slotNumber);
-              const filled = Boolean(slotItem || trolleyCtx.slots.some((s) => s.slot_number === slotNumber));
-              const productId = slotItem?.productId ?? trolleyCtx.slots.find((s) => s.slot_number === slotNumber)?.product_id;
-
-              return (
-                <div
-                  key={slotNumber}
-                  className={`trace-sim-slot${filled ? ' filled' : ''}`}
-                  onClick={() => setSelectedSlot({ slotNumber, product: slotItem })}
-                  title={`Slot #${slotNumber} — Tıklayarak PLC verilerini görün`}
-                >
-                  <div className="trace-sim-slot-num">#{slotNumber}</div>
-                  {filled ? (
-                    <div className="trace-sim-slot-product">{productId}</div>
-                  ) : (
-                    <Badge variant="muted">Boş</Badge>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* ─── Shell ID Oluştur Pop-up Modalı ─── */}
+      {/* Shell ID oluşturma pop-up'ı */}
       {shellModalOpen && (
-        <Modal
-          open={shellModalOpen}
-          title={t('trace.createShellTitle', { defaultValue: 'Yeni Shell ID / QR Kod Oluştur' })}
-          onClose={() => setShellModalOpen(false)}
-        >
+        <Modal open={shellModalOpen} title={t('trace.createShellTitle')} onClose={() => setShellModalOpen(false)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
             {shellError && <Alert variant="danger">{shellError}</Alert>}
             <Input
-              label={t('trace.shellIdLabel', { defaultValue: 'Shell ID / QR Kod İçeriği' })}
+              label={t('trace.shellIdLabel')}
               value={customShellId}
               onChange={(e) => {
                 setCustomShellId(e.target.value);
                 setShellError(null);
               }}
-              placeholder="SH-20260802-0001"
+              placeholder="SH-20260805-0001"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleCreateQrCode();
+                if (e.key === 'Enter') void handleCreate();
               }}
             />
             <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>
-              💡 {t('trace.shellIdUniqueHint', { defaultValue: 'Shell ID sistemde benzersiz (unique) olmalıdır. Dilerseniz otomatik üretilen koda dokunmadan "Oluştur & Yazdır" butonuna basabilirsiniz.' })}
+              💡 {t('trace.shellIdUniqueHint')}
             </p>
             <div className="flex justify-end gap-2 mt-2">
               <Button variant="ghost" onClick={() => setShellModalOpen(false)} disabled={busy}>
                 {t('common.cancel')}
               </Button>
-              <Button onClick={() => void handleCreateQrCode()} disabled={busy || !customShellId.trim()}>
-                <CheckCircle2 size={16} /> {t('trace.createAndPrint', { defaultValue: 'Oluştur & Yazdır' })}
+              <Button onClick={() => void handleCreate()} disabled={busy || !customShellId.trim()}>
+                <CheckCircle2 size={16} /> {t('trace.createAndPrint')}
               </Button>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* ─── Slot Detay Pop-up Modalı ─── */}
-      {selectedSlot && (
-        <Modal
-          open={Boolean(selectedSlot)}
-          title={t('trace.slotDetails', { slot: selectedSlot.slotNumber })}
-          onClose={() => setSelectedSlot(null)}
-        >
-          {selectedSlot.product ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-              {/* Ürün Üst Kimlik Kartı */}
-              <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <div>
-                  <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.productId')}</div>
-                  <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                    {selectedSlot.product.productId}
-                  </div>
-                </div>
-                <Badge variant={selectedSlot.product.status === 'completed' ? 'success' : selectedSlot.product.status === 'rejected' ? 'danger' : 'info'}>
-                  {t(`trace.status.${selectedSlot.product.status}`)}
-                </Badge>
-              </div>
-
-              {/* ─── 1. PLC'den Okunan Değerler ─── */}
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: 'var(--accent)' }}>⚡</span> {t('trace.plcDataTitle')}
-                </div>
-                {(() => {
-                  // Her tag yalnızca BİR KEZ gösterilir — aynı tag için birden
-                  // fazla kayıt varsa en güncel (son) kayıt esas alınır.
-                  const latest = new Map<string, { name: string; value: unknown; station: string }>();
-                  selectedSlot.product.records.forEach((r) => {
-                    if (!r.data) return;
-                    Object.entries(r.data).forEach(([k, v]) => {
-                      if (v === null || v === undefined) return;
-                      const tagId = Number(k.replace('tag_', ''));
-                      const name = tagId ? tagName(tagId) : k;
-                      latest.set(k, { name, value: v, station: r.stationName });
-                    });
-                  });
-                  const plcItems = [...latest.values()];
-
-                  if (plcItems.length === 0) {
-                    return <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noPlcDataForSlot')}</p>;
-                  }
-
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-2)' }}>
-                      {plcItems.map((item, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            background: 'var(--bg-input)',
-                            padding: 'var(--space-2) var(--space-3)',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--border-color)',
-                          }}
-                        >
-                          <div className="text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.name} <span style={{ opacity: 0.7 }}>({item.station})</span>
-                          </div>
-                          <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)', marginTop: 2 }}>
-                            {String(item.value)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* ─── 2. Ürün İstasyon Geçmişi ─── */}
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
-                  📜 {t('trace.stationHistoryTitle')}
-                </div>
-                {selectedSlot.product.records.length === 0 ? (
-                  <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noStationHistory')}</p>
-                ) : (
-                  <Table>
-                    <thead>
-                      <tr>
-                        <th>{t('trace.station')}</th>
-                        <th>{t('common.status')}</th>
-                        <th>{t('trace.timestamp')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedSlot.product.records.map((r, idx) => (
-                        <tr key={idx}>
-                          <td style={{ fontWeight: 600 }}>{r.stationName}</td>
-                          <td>
-                            <Badge variant={r.status === 'nok' || r.status === 'rejected' ? 'danger' : 'success'}>
-                              {r.status?.toUpperCase() ?? 'OK'}
-                            </Badge>
-                          </td>
-                          <td className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
-                            {new Date(r.createdAt + 'Z').toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                )}
-              </div>
-            </div>
-          ) : (
-            <Alert variant="info">{t('trace.slotEmptyHint')}</Alert>
-          )}
-        </Modal>
-      )}
-
-      {/* ─── QR etiket önizleme + yazdırma ─── */}
-      <QrLabelModal open={qrModalOpen && qrLabel !== null} label={qrLabel} onClose={() => setQrModalOpen(false)} />
+      <QrLabelModal
+        open={qrModalOpen && qrLabel !== null}
+        label={qrLabel}
+        onClose={() => setQrModalOpen(false)}
+        labelWidthMm={labelW}
+        labelHeightMm={labelH}
+      />
     </div>
+  );
+}
+
+// ─── Trolley Okuma paneli ────────────────────────────────────────────────────
+
+interface PlcPanelProps {
+  station: Station;
+  ctx: StationContextDto | null;
+  onChanged: () => void;
+}
+
+function TrolleyReadPanel({ station, ctx, onChanged }: PlcPanelProps) {
+  const { t } = useTranslation();
+  const [selectedSlot, setSelectedSlot] = useState<{ slotNumber: number; item?: TrolleyProductItem } | null>(null);
+
+  return (
+    <div className="trace-sim-body full-width-body">
+      <div className="trace-panel-grid">
+        <div>
+          <LastCaptureCard capture={ctx?.lastCapture} />
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <ManualEntryCard station={station} dataFields={[]} showTrolleyId onChanged={onChanged} />
+          </div>
+        </div>
+        <div>
+          {!ctx?.trolley ? (
+            <Alert variant="info">{t('trace.noTrolleyYet')}</Alert>
+          ) : (
+            <TrolleyGrid
+              trolley={ctx.trolley}
+              items={ctx.trolleyItems}
+              onSlotClick={(slotNumber, item) => setSelectedSlot({ slotNumber, item })}
+            />
+          )}
+        </div>
+      </div>
+
+      <SlotInfoModal selected={selectedSlot} onClose={() => setSelectedSlot(null)} />
+    </div>
+  );
+}
+
+// ─── Funnel Sıkma paneli ─────────────────────────────────────────────────────
+
+interface DataPanelProps extends PlcPanelProps {
+  dataFields: string[];
+}
+
+function FunnelScrewingPanel({ station, ctx, dataFields, onChanged }: DataPanelProps) {
+  return (
+    <div className="trace-sim-body full-width-body">
+      <div className="trace-panel-grid">
+        <div>
+          <LastCaptureCard capture={ctx?.lastCapture} />
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <ManualEntryCard station={station} dataFields={dataFields} showShellId onChanged={onChanged} />
+          </div>
+        </div>
+        <div>
+          <RecentMeasurementsCard stationKey={station.key} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Trolley-Shell Eşleştirme paneli ─────────────────────────────────────────
+
+function MatchingPanel({ station, ctx, onChanged }: PlcPanelProps) {
+  const { t } = useTranslation();
+  const [selectedSlot, setSelectedSlot] = useState<{ slotNumber: number; item?: TrolleyProductItem } | null>(null);
+
+  return (
+    <div className="trace-sim-body full-width-body">
+      <div className="trace-panel-grid">
+        <div>
+          <LastCaptureCard capture={ctx?.lastCapture} />
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <ManualEntryCard station={station} dataFields={[]} showShellId showSlot onChanged={onChanged} />
+          </div>
+        </div>
+        <div>
+          {!ctx?.trolley ? (
+            <Alert variant="info">{t('trace.noTrolleyYet')}</Alert>
+          ) : (
+            <TrolleyGrid
+              trolley={ctx.trolley}
+              items={ctx.trolleyItems}
+              onSlotClick={(slotNumber, item) => setSelectedSlot({ slotNumber, item })}
+            />
+          )}
+        </div>
+      </div>
+
+      <SlotInfoModal selected={selectedSlot} onClose={() => setSelectedSlot(null)} />
+    </div>
+  );
+}
+
+// ─── Dolum / Problama paneli (araba bazlı ölçüm istasyonları) ────────────────
+
+function TrolleyDataPanel({ station, ctx, dataFields, onChanged }: DataPanelProps) {
+  const { t } = useTranslation();
+  const [selectedSlot, setSelectedSlot] = useState<{ slotNumber: number; item?: TrolleyProductItem } | null>(null);
+  const isFilling = station.type === 'filling';
+
+  return (
+    <div className="trace-sim-body full-width-body">
+      <div className="trace-panel-grid">
+        <div>
+          <LastCaptureCard capture={ctx?.lastCapture} />
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            <ManualEntryCard
+              station={station}
+              dataFields={dataFields}
+              showTrolleyId
+              showRow={isFilling}
+              onChanged={onChanged}
+            />
+          </div>
+        </div>
+        <div>
+          {!ctx?.trolley ? (
+            <Alert variant="info">{t('trace.noTrolleyYet')}</Alert>
+          ) : (
+            <TrolleyGrid
+              trolley={ctx.trolley}
+              items={ctx.trolleyItems}
+              onSlotClick={(slotNumber, item) => setSelectedSlot({ slotNumber, item })}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Slot detayı — bu istasyonun ölçümleri: görüntüle/ekle/düzenle/sil */}
+      <Modal
+        open={selectedSlot !== null}
+        title={t('trace.slotDetails', { slot: selectedSlot?.slotNumber })}
+        onClose={() => setSelectedSlot(null)}
+      >
+        {selectedSlot?.item?.productId ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <div>
+                <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.productId')}</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                  {selectedSlot.item.productId}
+                </div>
+              </div>
+              <Badge variant={selectedSlot.item.status === 'completed' ? 'success' : selectedSlot.item.status === 'rejected' ? 'danger' : 'info'}>
+                {t(`trace.status.${selectedSlot.item.status}`)}
+              </Badge>
+            </div>
+            <MeasurementEditor
+              shellId={selectedSlot.item.productId}
+              stationKey={station.key}
+              suggestedFields={dataFields}
+              onChanged={onChanged}
+            />
+          </div>
+        ) : (
+          <Alert variant="info">{t('trace.slotEmptyManualHint')}</Alert>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ─── Son Ölçümler kartı (istasyon bazlı — düzenle/sil) ───────────────────────
+
+function RecentMeasurementsCard({ stationKey }: { stationKey: string }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [items, setItems] = useState<Measurement[]>([]);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const { measurements } = await traceService.listStationMeasurements(stationKey, 15);
+      setItems(measurements);
+    } catch {
+      // sessiz geç
+    }
+  }, [stationKey]);
+
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => void load(), 5000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const handleUpdate = async (m: Measurement) => {
+    if (!editValue.trim()) return;
+    try {
+      const num = Number(editValue);
+      await traceService.updateMeasurement(m.id, Number.isFinite(num) && editValue.trim() !== '' ? num : editValue.trim());
+      setEditId(null);
+      toast.success(t('trace.measurementSaved'));
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    }
+  };
+
+  const handleDelete = async (m: Measurement) => {
+    try {
+      await traceService.deleteMeasurement(m.id);
+      toast.success(t('trace.measurementDeleted'));
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
+    }
+  };
+
+  return (
+    <div className="trace-panel-card">
+      <div className="trace-panel-title">📊 {t('trace.recentMeasurements')}</div>
+      {items.length === 0 ? (
+        <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>{t('trace.noMeasurements')}</p>
+      ) : (
+        <div className="trace-measurement-list">
+          {items.map((m) => (
+            <div key={m.id} className="trace-measurement-row">
+              <div className="trace-measurement-field">
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>{m.shellId}</div>
+                <div className="text-muted" style={{ fontSize: '11px' }}>{m.field}</div>
+              </div>
+              {editId === m.id ? (
+                <div className="flex gap-1" style={{ alignItems: 'center' }}>
+                  <input
+                    className="input"
+                    style={{ width: 100, padding: '4px 8px', fontSize: 'var(--font-size-sm)' }}
+                    value={editValue}
+                    autoFocus
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleUpdate(m);
+                      if (e.key === 'Escape') setEditId(null);
+                    }}
+                  />
+                  <Button small onClick={() => void handleUpdate(m)}>{t('common.save')}</Button>
+                </div>
+              ) : (
+                <>
+                  <div className="trace-measurement-value">{m.value ?? '—'}</div>
+                  <div className="flex gap-1">
+                    <button className="btn-icon" title={t('trace.editValue')} onClick={() => { setEditId(m.id); setEditValue(String(m.value ?? '')); }}>
+                      <Pencil size={14} />
+                    </button>
+                    <button className="btn-icon text-danger" title={t('common.delete')} onClick={() => void handleDelete(m)}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Slot bilgi pop-up'ı (trolley_read / matching — salt görüntüleme) ────────
+
+function SlotInfoModal({ selected, onClose }: { selected: { slotNumber: number; item?: TrolleyProductItem } | null; onClose: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Modal open={selected !== null} title={t('trace.slotDetails', { slot: selected?.slotNumber })} onClose={onClose}>
+      {selected?.item?.productId ? (
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.productId')}</div>
+            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+              {selected.item.productId}
+            </div>
+          </div>
+          <Badge variant={selected.item.status === 'completed' ? 'success' : selected.item.status === 'rejected' ? 'danger' : 'info'}>
+            {t(`trace.status.${selected.item.status}`)}
+          </Badge>
+        </div>
+      ) : (
+        <Alert variant="info">{t('trace.slotEmptyHint')}</Alert>
+      )}
+    </Modal>
   );
 }

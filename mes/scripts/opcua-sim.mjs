@@ -166,6 +166,51 @@ namespace.addVariable({
   },
 });
 
+// ─── Standart istasyon sözleşmesi tag'leri (hepsi yazılabilir) ─────────────
+// ShellId / TrolleyId (string), SlotNumber / RowNumber (int), Trigger (bool),
+// Sonuç: Ack (bool), ErrorCode (int), ErrorMessage (string), Busy (bool)
+let triggerValue = false;
+let shellIdValue = '';
+let trolleyIdValue = '';
+let slotNumValue = 0;
+let ackValue = false;
+let errorCodeValue = 0;
+let errorMsgValue = '';
+let busyValue = false;
+
+const addRW = (browseName, dataType, opcType, get, set) => {
+  namespace.addVariable({
+    componentOf: simFolder,
+    browseName,
+    nodeId: `s=Sim.${browseName}`,
+    dataType,
+    accessLevel: readWrite,
+    userAccessLevel: readWrite,
+    value: {
+      get: () => new Variant({ dataType: opcType, value: get() }),
+      set: (variant) => {
+        set(variant.value);
+        console.log(`[sim] ✍  Sim.${browseName} yazıldı → ${variant.value}`);
+        return StatusCodes.Good;
+      },
+    },
+  });
+};
+
+addRW('Trigger', 'Boolean', DataType.Boolean, () => triggerValue, (v) => { triggerValue = Boolean(v); });
+// İstasyon başına ayrı trigger bitleri (e2e test: her istasyon kendi bitiyle tetiklenir)
+const trgStates = { TrgTrolley: false, TrgFunnel: false, TrgMatch: false, TrgFill: false, TrgProbe: false };
+for (const name of Object.keys(trgStates)) {
+  addRW(name, 'Boolean', DataType.Boolean, () => trgStates[name], (v) => { trgStates[name] = Boolean(v); });
+}
+addRW('ShellId', 'String', DataType.String, () => shellIdValue, (v) => { shellIdValue = String(v); });
+addRW('TrolleyId', 'String', DataType.String, () => trolleyIdValue, (v) => { trolleyIdValue = String(v); });
+addRW('SlotNum', 'Int16', DataType.Int16, () => slotNumValue, (v) => { slotNumValue = Number(v); });
+addRW('Ack', 'Boolean', DataType.Boolean, () => ackValue, (v) => { ackValue = Boolean(v); });
+addRW('ErrorCode', 'Int16', DataType.Int16, () => errorCodeValue, (v) => { errorCodeValue = Number(v); });
+addRW('ErrorMsg', 'String', DataType.String, () => errorMsgValue, (v) => { errorMsgValue = String(v); });
+addRW('Busy', 'Boolean', DataType.Boolean, () => busyValue, (v) => { busyValue = Boolean(v); });
+
 await server.start();
 
 const endpoint = server.endpoints?.[0]?.endpointDescriptions?.()?.[0]?.endpointUrl

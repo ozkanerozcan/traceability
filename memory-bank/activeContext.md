@@ -1,7 +1,16 @@
 # Active Context — OE MES
 
 ## Current Focus
-**Faz 1–6 + Ürün İzlenebilirliği TAMAMLANDI** (2026-07-30). Tüm çekirdek modüller (plc-gateway, recipe, work-order, user-management, system-settings, **traceability**) backend + frontend olarak devrede ve uçtan uca doğrulandı. Repo: https://github.com/ozkanerozcan/traceability (origin/main güncel). İstasyon bazlı inceleme turu sürüyor — **#1 QR üretim istasyonu** (mm boyutlu etiket önizleme + yazdırma + önceki QR'lar) ve **#2 yetenek modeli yeniden tasarımı** (printing kaldırıldı, trolley_assign→**trolley_read**, plc_acquire **trigger bitli** olay-bazlı, her yetenek ayrı kartta) tamamlandı. **#3 Araba Atama derinleştirme** de tamamlandı: araba okutunca **otomatik içerik temizleme** (slot_count korunur), canlı **shell slot ızgarası**, TrolleysPage'de **kalıcı slot_count** düzenleme, trigger **subscribe-only** + **handshake** (kayıt sonrası trigger'ı false çek), `lastCapture` gösterimi. **#4 PLC Read genellemesi** de tamamlandı (istasyondan bağımsız PLC Read: trigger subscribe + çoklu değişken → Shell ID'ye kayıt; senaryolar: scan/plc/trolley [satır-bazlı 4'lü veya tüm-ürünler]; `clearOnRead` yalnız ilk istasyonda). **#5 StationForm sadeleştirme** de tamamlandı (ana form: isim + yetenek çipleri; anahtar isimden otomatik, tip yeteneklerden otomatik; yetenek seçimi ayrı pop-up, yetenek konfigürasyonu ayrı iç içe pop-up). Kalan: Faz 7 (PWA & Polish) + diğer istasyonların gözden geçirilmesi.
+**İZLENEBİLİRLİK v2 — BÜYÜK YENİDEN YAPI TAMAMLANDI** (2026-08-05). Kullanıcı talebiyle **yetenek (capability) sistemi ve Rotalar tamamen kaldırıldı**; her istasyon artık sabit bir TİP'e sahip (kendi özel ayarlarıyla): `qr_generate`, `trolley_read`, `funnel_screwing`, `trolley_shell_matching`, `filling`, `probing`. Tüm istasyonlar **standart PLC sözleşmesi** ile çalışıyor (ShellId/TrolleyId/SlotNumber/RowNumber/Trigger/Data + Ack/ErrorCode/ErrorMessage/Busy) ve **web'den manuel veri girişi** destekleniyor ("PLC'den gelmiş gibi"). Ölçümler `trace_measurements` tablosunda — **düzenlenebilir/silinebilir/manuel eklenebilir**. Doğrulama: typecheck + build temiz (PWA 42), Migration 11 canlı DB'de, **OPC UA sim e2e 34/34**, tarayıcıda UI doğrulandı. Kalan: Faz 7 (PWA & Polish) + ileride yeni istasyon tipleri (kullanıcı ekleyecek).
+
+## v2 Mimari Özeti (2026-08-05)
+- **Migration 11 (`traceability_station_types`):** `trace_routes`+`trace_route_steps` DROP; `trace_stations.capabilities` kaldırıldı (rebuild); `shells.route_id`+`current_step_index` kaldırıldı (rebuild); yeni tablolar **`trace_measurements`** (UNIQUE(shell_id,station_key,field) → UPSERT; source: plc/manual) + **`trace_station_runtime`** (son okunan araba DB'de — restart'ta kaybolmaz). Eski istasyonlar eşlendi; `trolley_read` seed; tanınmayanlar `legacy`+pasif. History JSON'daki PLC verileri measurements'a taşındı (best-effort).
+- **Standart PLC sözleşmesi (`StationConfig`):** `plcId, shellIdTagId, trolleyIdTagId, slotTagId, rowTagId, triggerTagId, dataTagIds[], ackTagId, errorCodeTagId (YENİ int), errorMessageTagId, busyTagId (YENİ bool), clearOnRead, labelWidth/Height`. **Satır no ≠ slot no** (1 satır = `row_size` slot, genel ayar).
+- **Trigger akışı:** yükselen kenar → sonuçlar temizle + Busy=true → sözleşme tag'leri oku → tip handler → Ack=true / ErrorCode+ErrorMessage → Busy=false → Trigger=false (handshake). Hata kodları `PLC_ERR`: 1 shell yok, 2 araba yok, 3 slot geçersiz, 4 okunmuş araba yok, 5 hedef boş, 6 PLC okuma, 7 geçersiz veri, 8 slot dolu.
+- **İstasyon davranışları:** trolley_read → TrolleyId'yi runtime'a DB'ye yazar (matching bunu kullanır; clearOnRead ile eski içerik temizlenir); funnel_screwing → ShellId+Data ölçüm UPSERT; matching → ShellId+SlotNumber + son okunan araba → shells.trolley_id/slot_number; filling → TrolleyId+RowNumber+Data → satırdaki tüm shell'ler; probing → TrolleyId+Data → arabadaki TÜM shell'ler.
+- **Manuel tetikleme:** `POST /api/trace/stations/:key/trigger` — aynı handler'lar, PLC'ye hiç yazılmaz. Ölçüm CRUD: `GET /shells/:id/measurements`, `POST/PUT/DELETE /measurements(/:id)`, `GET /stations/:key/measurements`.
+- **Frontend:** StationsPage tip bazlı form (tip seçimi + tipe özel PLC sözleşmesi bölümleri); StationWorkPage 6 özel panel (QR hero + TrolleyRead/Funnel/Matching/TrolleyData panelleri; LastCaptureCard + ManualEntryCard + TrolleyGrid + MeasurementEditor ortak bileşenler); TrolleysPage slot pop-up'ı (istasyon seçici + MeasurementEditor); ProductsPage detay (ölçümler istasyon bazında + geçmiş); RoutesPage + nav linki + `/trace/routes` rotası silindi.
+- **Test:** `scripts/migration11-test.mjs` (18/18, kopya DB), `scripts/trace-e2e-test.mjs` (**34/34** — sim :4841'de TrgTrolley/TrgFunnel/TrgMatch/TrgFill/TrgProbe + ShellId/TrolleyId/SlotNum/RowNum/Torque/ShellTemp/Ack/ErrorCode/ErrorMsg/Busy tag'leri). Eski trace test scriptleri silindi.
 
 ## What Exists Right Now
 
@@ -83,10 +92,6 @@
   - **Backend:** `trace.service` (capability tipi + `dataTagIds/triggerTagId/slotTagId` + **aktif bağlam** `getStationContext/setActiveTrolley/setActiveProduct/clearActiveProduct` + `getTrolley/nextFreeSlot`); **Migration 4** (`traceability_capability_rename` — mevcut istasyonların capabilities JSON'unda trolley_assign→trolley_read, printing silindi); `station.engine` (handleTrolleyRead, handlePlcAcquireScan=ürünü AKTİF yapar, `capturePlcData` export, tryAdvance plc_acquire için 'done' kaydı şartı); **yeni `plc-data-watcher.ts`** (onData kenar izleyici, `startPlcDataWatcher`/`reloadPlcDataWatches`); routes `POST /stations/:key/trolley` (onay) + `GET /stations/:key/context`; index.ts watcher'ı register'da başlatır (v1.1.0).
   - **Frontend:** `trace.service` (CAPABILITY_KEYS güncel + `confirmTrolley`/`getStationContext` + `TrolleyContext` tipi); `StationWorkPage` **yetenek başına ayrı kart** (QR/Araba Okuma/PLC Data/Parti/OK-NOK/Bekleme), araba onayı localStorage'da sabit + 3sn'de bağlam tazeleme; `StationsPage` formu (printing kaldırıldı, plc_acquire için PLC + trigger + slot + **çoklu data tag checkbox** `trace-tag-picker`); i18n (tr/en) `trace.cap.trolley_read` + confirmTrolley/changeTrolley/triggerTag/slotTag/dataTags/plcDataConfig/waitingPlc/processProduct/setActiveProduct vb.
   - **Doğrulama:** Migration 4 gerçek DB'de uygulandı (capabilities doğru); API ile trolley_read akışı (onay→context→tara→oto slot+ilerleme); **OPC UA sim ile uçtan uca trigger testi** (`scripts/trace-trigger-test.mjs` — 12/12: sim PLC kur → probing trigger config → ürün AKTİF → Sim.Bool toggle → veri ürüne yazıldı + ilerledi). **Kritik bulgu:** opcua-sim `getOwnNamespace()` kullandığı için değişkenler **ns=1**'de (kod yorumundaki ns=2 yanlış) — test tag adresleri `ns=1;s=...` olmalı. Tarayıcıda doğrulandı: yetenekler ayrı kartlarda, araba onayı sabit (TR-001 4/20→5/20), ürün oto slot. Typecheck + build temiz (PWA 42 precache). Not: `DEFAULT_DB_PATH='./data/mes.db'` cwd'ye göre çözümlenir — sunucu `packages/backend`'den başlatılmalı (yoksa stray `mes/data/mes.db` oluşur).
-
-
-
-
 - **2026-08-01 (İstasyon inceleme turu #3 — Araba Atama derinleştirme):** Kullanıcı geri bildirimiyle trolley_assign istasyonu derinleştirildi.
   - **Araba okutunca OTOMATİK içerik temizleme:** İlk istasyon + arabalar tekrar kullanıldığından, `POST /stations/:key/trolley` onayında `releaseTrolley` ile önceki slot içeriği OTOMATİK temizlenir (**slot_count KORUNUR** — kalıcı kolon). Reset butonu YOK.
   - **Canlı shell slot ızgarası:** trolley_read kartında onaylı arabanın slot yerleşim ızgarası (`.trace-slot-grid`/`.trace-slot`) — PLC verisi geldikçe 3 sn context poll ile **canlı dolar**.
@@ -96,7 +101,6 @@
   - **`lastCapture` gösterimi:** StationContext'e `lastCapture` (ürün + data + slot + zaman); `GET /stations/:key/context` döndürür; PLC Data kartında "Son Yakalanan Veri" (`.trace-last-capture`). "Set Active Product" yalnızca trolley_read'siz istasyonlarda.
   - **Backend:** `updateTrolleySlotCount`, `setLastCapture`, `LastCapture` tipi; routes `PUT /trolleys/:id` + context `lastCapture`; trolley confirm'de `releaseTrolley`.
   - **Doğrulama:** `scripts/trace-handshake-test.mjs` OPC UA sim ile **17/17** — araba onayında içerik oto temizlendi; QR üret → ürün AKTİF; Setpoint=1 (trigger) → counter+slot ürüne yazıldı + arabaya slot atandı + **Setpoint otomatik 0 (handshake)** + lastCapture bağlamda. Tarayıcıda slot ızgarası (20 slot) doğrulandı. Typecheck + build temiz (PWA 42).
-
 - **2026-08-01 (İstasyon inceleme turu #4 — PLC Read genellemesi):** Kullanıcı geri bildirimiyle PLC Read istasyondan bağımsız genel bir yapıya dönüştürüldü.
   - **Genel PLC Read:** trigger biti (yalnız **subscribe** tag — anında algılama) + PLC'den okunacak **çoklu değişken** (`dataTagIds`). Trigger TRUE olunca değişkenler okunup Shell ID(ler)e kaydedilir; ardından trigger **false** çekilir (handshake).
   - **Shell ID kaynağı (`StationConfig.shellIdSource`):** `'scan'` (taranan AKTİF ürün — varsayılan, eski handshake korunur), `'plc'` (Shell ID `shellIdTagId`'den okunur), `'trolley'` (onaylı arabadaki ürünler — `trolleyMatchMode:'row'` + `rowTagId` satır no + `rowSize`=4 satır-bazlı, veya `'all'` tüm ürünler).
@@ -104,7 +108,6 @@
   - **Backend:** `capturePlcData` rework (3 kaynak → hedef ürün(ler) → veri oku → yaz + ilerlet → handshake); `trace.service` StationConfig genişletmesi; trolley confirm'de `clearOnRead` kontrolü.
   - **Frontend:** StationsPage PLC Read config UI (PLC + trigger subscribe + Shell ID kaynağı + koşullu alanlar scan/plc/trolley + çoklu data tag); StationWorkPage'de trolley_read görünürlüğü (okuma alanı ↔ detay+slot ızgarası) + "Set Active Product" yalnız 'scan' modunda + kaynak bazlı config özeti. i18n `shellIdSource/shellIdTag/trolleyMatch/rowTag/rowSize/src.*/match.*/clearOnRead`.
   - **Doğrulama:** `scripts/trace-scenarios-test.mjs` **12/12** (4 ürün arabaya yüklendi → rowtest clearOnRead=false **temizlemedi** → row=0 trigger → **satırdaki 4 ürüne temp** + handshake). Scan regresyonu `trace-handshake-test.mjs` **17/17**. Sim'e yazılabilir `Sim.RowNum` eklendi. Typecheck + build temiz (PWA 42).
-
 - **2026-08-01 (İstasyon inceleme turu #5 — StationForm sadeleştirme):** Kullanıcı geri bildirimiyle istasyon ekleme/düzenleme pop-up'ı sadeleştirildi ("karışık görünüyor" şikayeti).
   - **Sade ana form:** yalnızca **İsim + atanan yetenek çipleri** (`.trace-cap-chip`). Karışık inline konfigürasyon (PLC Read, wait, label, clearOnRead) formdan çıkarıldı.
   - **Anahtar OTOMATİK:** `slugify(name)` — isimden URL-güvenli anahtar (çalışma sayfası rotası için gerekli ama elle girilmez; düzenlemede mevcut key korunur). Kullanıcının "anahtar gerekli mi?" sorusuna: gerekli ama otomatik üretiliyor.
@@ -112,102 +115,79 @@
   - **Yetenek seçimi ayrı pop-up:** `CapabilityPicker` (çoklu checkbox, `modalStack` iç içe pop-up). Ana formdaki "+ Yetenek Ekle" ile açılır.
   - **Yetenek konfigürasyonu ayrı pop-up:** `CapabilityConfig` — konfigürasyon gerektiren yetenekler (qr_generate/trolley_read/plc_acquire/wait_control/batch_assign) çipteki dişli (⚙) ikonuyla kendi iç içe pop-up'ında ayarlanır. Tek `config: StationConfig` objesi state'inde; `set(key, value)` helper.
   - **Doğrulama (tarayıcı):** isim→anahtar oto (test_dolum), yetenek seçici (blur overlay), PLC Verisi çipi + tip oto "PLC", "PLC Verisi Ayarları" pop-up'ı (PLC + Trigger subscribe + Shell ID kaynağı + slot). Typecheck + build temiz (PWA 42). i18n `stationNamePlaceholder/autoDerived/addCapability/selectCapabilities/configureCapability*/noCapabilities/componentKind/kind.*`; CSS `.trace-cap-chips/-chip/-chip-btn/-add`.
-
 - **2026-08-02 (İstasyon inceleme turu #6 — PLC Data yapılandırma revizyonu):**
   - **`slotTagId` kaldırıldı:** Ayrı "Slot Tag" dropdown'ı kaldırıldı — slot/pozisyon bilgisi artık `dataTagIds` içinde yer alır. Frontend + backend tiplerinden, `station.engine`'den ve UI'dan kaldırıldı.
   - **Multi-select `TagMultiSelect` bileşeni (yeni):** `dataTagIds` için arama destekli pop-up — tag adı/adres/açıklama ile filtreleme, çoklu seçim (toggle), seçilenleri liste halinde gösterim. Checkbox listesi yerine kullanılıyor.
   - **Select bileşeni düzeltmeleri:** `.map()` sonucu gelen çocuk ögeler recursive işlendi; boş değer placeholder "Seçiniz..." eklendi. Trigger bit `subscribe + BOOL` ile filtrelendi.
-
 - **2026-08-02 (İstasyon inceleme turu #7 — İç İçe Modal Z-Index Sıralaması Düzeltmesi):**
   - **Pop-up tekrar açılmama sorunu çözüldü:** `StationForm` -> `CapabilityConfig` -> `Select` (Shell ID Kaynağı) iç içe pop-up hiyerarşisinde seçim yapıldıktan sonra üst modal re-render oluyordu. Eski z-index mantığı static `modalCloseStack.length` okuduğu için, re-render sonrasında parent modal `CapabilityConfig` bir üst z-index basamağına çıkıyor ve ikincil `Select` modalı tekrar açıldığında parent modalın altında kalıyordu.
   - **Dinamik Modal Yığını Yöneticisi (`globalModalStack`):** Her `Modal` bileşenine benzersiz `Symbol` atandı ve global yığında kayıtlı tutulup listener sistemiyle dinlendi. Açık kalan modal'ların z-index seviyeleri yığındaki gerçek sıra numaralarına (`depth`) göre dinamik olarak güncelleniyor. Seçim yapılıp üst modal re-render olduğunda parent modal kendi sırasını korur, yeni açılan `Select` pop-up'ı her zaman 1 basamak yüksekte (en üstte) pürüzsüzce açılır.
-
 - **2026-08-02 (İstasyon inceleme turu #8 — Shell ID Kaynağı Seçenekleri Revizyonu):**
   - **Taranan (`scan`) kaldırıldı:** PLC Veri Ayarları (`plc_acquire`) konfigürasyonundaki Shell ID Kaynağı seçeneğinden `Taranan Ürün` tamamen çıkarıldı. Varsayılan kaynak `PLC - Shell ID` olarak ayarlandı.
   - **Seçenek Etiketleri Güncellendi:** `PLC'den` ➔ **`PLC - Shell ID`**, `Arabadan` ➔ **`PLC - Trolley ID`**.
-
 - **2026-08-02 (İstasyon inceleme turu #9 — Trolley 4x5 Düzeni, Trolley ID Tag ve Genel Ayarlar Taşınması):**
   - **Trolley ID Tag (`trolleyIdTagId`) eklendi:** `PLC - Trolley ID` kaynağında Trolley ID verisinin hangi PLC tag'inden okunacağı pop-up ayarlarında seçilebilir hale getirildi. Backend'de PLC'den okunan Trolley ID koduna göre araba otomatik eşleştirilir.
   - **Satır Başına Ürün ve Araba Kapasitesi Genel Ayarlara Taşındı:** `Ayarlar` (`SettingsPage.tsx`) sayfasına **"Üretim & İzlenebilirlik"** kartı eklendi: **Araba Ürün Kapasitesi** (`trolley_capacity`, varsayılan 20) ve **Satır Başına Ürün** (`row_size`, varsayılan 4) proje geneli ayarlar olarak kaydedildi.
   - **Trolley Izgara Görünümü 4x5 Yapıldı:** `.trace-slot-grid` CSS `grid-template-columns: repeat(4, 1fr)` olarak güncellendi (4 sütun x 5 satır = 20 slot).
-
 - **2026-08-02 (İstasyon inceleme turu #10 — Araba Değiştir Temizleme Düzeltmesi):**
   - **Araba Değiştir sorunu çözüldü:** Operatör "Araba Değiştir" butonuna tıkladığında frontend/localStorage temizleniyordu ancak backend aktif araba hafızası silinmediği için 3 sn polling eski arabayı geri getiriyordu. `DELETE /api/trace/stations/:key/trolley` ve `clearActiveTrolley` ile hem frontend hem backend sıfırlaması sağlandı.
-
 - **2026-08-02 (İstasyon inceleme turu #11 — Araba Okuma Kartı Sadeleştirmesi):**
   - **Araba Okuma (`trolley_read`) Kartı Sadeleştirildi:** Araba Okuma kartından gereksiz `Ürün ID` tarama alanı kaldırıldı; kart yalnızca araba onayı ve canlı 4x5 slot ızgarası gösterimine indirgendi.
-
 - **2026-08-02 (İstasyon inceleme turu #12 — 1-Tabanlı Satır Numarası Eşleştirmesi):**
   - **Satır Numarası Eşleştirmesi:** PLC'den okunan `rowTagId` satır numarası için 1-tabanlı eşleştirme uygulandı (`1. satır = 1..4 slotlar`, `2. satır = 5..8 slotlar`).
-
 - **2026-08-02 (PLC Management — Tag Silme FOREIGN KEY Hatası Düzeltmesi):**
   - **Migration 5 (`recipe_tags_cascade_delete`):** `recipe_tags` tablosu `tag_id REFERENCES plc_tags(id) ON DELETE CASCADE` yapıldı; `deleteTag` ve `deletePlc` servislerinde transaction temizliği sağlandı.
-
 - **2026-08-02 (PLC Management — Tag Formunda Subscribe Modu Örnekleme Sıklığı Etiketi):**
   - **Dinamik Etiket:** [TagForm.tsx](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/frontend/src/modules/plc-gateway/components/TagForm.tsx#L227) formunda `pollingIntervalMs` etiketi `acquisitionMode` seçimine göre dinamik yapıldı (`Poll` ➔ `Polling (ms)`, `Subscribe` ➔ `Örnekleme Sıklığı (ms)`).
-
 - **2026-08-02 (PLC Management — OPC UA Browse String Veri Tipi Algılama İyileştirmesi):**
   - **Çok Aşamalı Veri Tipi Tespiti (`readDataTypeAttribute`):** Standart tipi, NodeId regex, BrowseName/DisplayName sorgusu ve canlı `Value` attribute okuması fallback'i eklendi. Siemens S7 dahil tüm `STRING`/`WString` tag'ler gözatma ekranında otomatik `STRING` algılanıyor.
-
 - **2026-08-02 (PLC Verisi Ayarları — TagMultiSelect Seçim Sayısı Uyuşmazlığı Düzeltmesi):**
   - **Düzeltme:** `TagMultiSelect` ([TagMultiSelect.tsx](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/frontend/src/modules/traceability/components/TagMultiSelect.tsx#L36)) bileşeninde `validSelectedIds` süzgeci uygulandı. Mükerrer ve silinmiş tag ID'leri süzülerek sayacın ve pop-up butonlarının kart sayısı ile %100 birebir eşitlenmesi sağlandı.
-
 - **2026-08-02 (Ürün Yönetimi — Ürün Silme Özelliği):**
   - **Ürün Silme Özelliği Eklendi:** Ürünler sayfasında (`ProductsPage.tsx`) listelenen ürünlerin yönetimi için silme mekanizması kuruldu.
   - **Backend Endpoint (`DELETE /api/trace/products/:id`):** `deleteProduct` ([trace.service.ts](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/backend/src/modules/traceability/trace.service.ts#L341)) fonksiyonu ile ürün silindiğinde, ürüne ait araba slot kayıtları (`trace_trolley_slots`), istasyon geçmiş kayıtları (`trace_station_records`) ve alarmlar (`trace_alarms`) tek bir transaction içerisinde güvenle temizlenir. Audit kaydı (`trace_product` delete) atılır.
   - **Frontend Entegrasyonu:** [ProductsPage.tsx](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/frontend/src/modules/traceability/components/ProductsPage.tsx#L106) tablosuna silme butonu (`Trash2` ikonu) ve `ConfirmDialog` onay diyaloğu eklendi.
   - **Değişen Dosyalar:** `ProductsPage.tsx`, `trace.service.ts` (fe/be), `trace.routes.ts`, `tr.json`, `en.json`.
-
 - **2026-08-02 (Araba Yönetimi — Araba Silme Özelliği):**
   - **Araba Silme Özelliği Eklendi:** Arabalar sayfasında (`TrolleysPage.tsx`) tanımlı arabaların yönetimi ve silinmesi sağlandı.
   - **Backend Endpoint (`DELETE /api/trace/trolleys/:id`):** `deleteTrolley` ([trace.service.ts](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/backend/src/modules/traceability/trace.service.ts#L254)) fonksiyonu ile araba silindiğinde, arabaya ait slot yerleşimleri (`trace_trolley_slots`), alarmlar (`trace_alarms`) ve aktif istasyon çalışma bağlamları (`stationContexts`) temizlenir. Audit kaydı (`trace_trolley` delete) atılır.
   - **Frontend Entegrasyonu:** [TrolleysPage.tsx](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/frontend/src/modules/traceability/components/TrolleysPage.tsx#L90) kart aksiyonlarına silme butonu (`Trash2` ikonu) ve `ConfirmDialog` onay diyaloğu eklendi.
   - **Değişen Dosyalar:** `TrolleysPage.tsx`, `trace.service.ts` (fe/be), `trace.routes.ts`, `tr.json`, `en.json`.
-
 - **2026-08-02 (Ürünler Sayfası — Hızlı Ürün Ekleme & QR Etiket Pop-up Entegrasyonu):**
   - **Hızlı Ürün Ekleme Butonu:** Ürünler sayfasına (`ProductsPage.tsx`) Arabalar sayfasındaki gibi **"+ Ürün Ekle"** butonu eklendi.
   - **QR Üretim İstasyonuyla Birebir Aynı İşlev:** Butona tıklandığında backend `createNewProduct` ([station.engine.ts](file:///c:/Users/ozkanerozcan/Desktop/Traceability/mes/packages/backend/src/modules/traceability/station.engine.ts#L570)) fonksiyonu çağrılarak otomatik benzersiz `SH-YYYYMMDD-NNNN` ürün kimliği üretilir, QR etiketi render edilir ve QR istasyonu kaydı atılır.
   - **Otomatik Pop-up Önizleme:** Oluşturma tamamlandığında üretilen ürünün **gerçek mm boyutlu QR Etiket pop-up'ı (`QrLabelModal`)** ekranda otomatik açılır. Operatör ürünler sayfasından çıkmadan hızlıca etiket önizleyebilir ve doğrudan yazdırabilir.
   - **Değişen Dosyalar:** `ProductsPage.tsx`, `station.engine.ts`, `trace.service.ts` (fe/be), `trace.routes.ts`, `tr.json`, `en.json`.
-
 - **2026-08-02 (İstasyon Çalışma Ekranı — Son Yakalanan Veri & Özeti Filtreleme):**
   - **Düzeltme:** Silinmiş tag artıkları (`#5`) hem `Son Yakalanan Veri` bileşeninde hem de kart üstündeki **"Ürüne Yazılacak Tag'ler" özet alanında** (`StationWorkPage.tsx`) aktif `plcTags` listesiyle süzüldü. Artık silinmiş tag ID'leri arayüzdeki özet metinlerinde de gösterilmiyor.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`.
-
 - **2026-08-02 (Çeviri Anahtarları & Geçmiş PLC Verisi Okuma Düzeltmesi):**
   - **i18n Çevirileri:** `tr.json` ve `en.json` dosyalarına eksik olan `trace.activeTrolley`, `trace.plcDataTitle`, `trace.stationHistoryTitle`, `trace.timestamp` ve `trace.confirmTrolleyFirst` çeviri anahtarları eklendi.
   - **Geçmiş PLC Verisi Ayrıştırma:** Backend `getTrolleyProductItems` fonksiyonunda (`trace.service.ts`) veritabanındaki `data` sütunu yanlışlıkla `data_json` olarak okunduğu için tork vb. önceden kaydedilmiş PLC verilerinin `null` dönmesi sorunu çözüldü. Ayrıca frontend `StationWorkPage.tsx` üzerinde pop-up açıldığında geçmiş PLC verilerinin filtrelenmeden eksiksiz gösterilmesi sağlandı.
   - **Değişen Dosyalar:** `trace.service.ts` (backend), `StationWorkPage.tsx`, `tr.json`, `en.json`.
-
 - **2026-08-02 (Veritabanı Şeması Görselleştirme & Dokümantasyon):**
   - **Dokümantasyon Artifact'ı:** Projenin veritabanı mimarisi, 23 tablonun detayları, alan tipleri ve tablolar arası ilişkileri Mermaid ER Diyagramı ile `database_schema_documentation.md` olarak dokümante edildi. Proje kaynak kodunda hiçbir değişiklik yapılmadı.
   - **Shell ID Ürün Kayıtları Rehberi:** Kullanıcının sorusu üzerine belirli bir Shell ID (`product_id`) ile ürün kayıtlarını getirmek için REST API (`GET /api/traceability/products/:productId`), veritabanı SQL birleştirme sorguları ve backend servis metodları (`getProductByProductId`, `getProductRecords`) kullanım kılavuzu sağlandı.
-
 - **2026-08-02 (Nihai 2-Tablolu Sade Mimarisi — `trolleys` & `shells`):**
   - **Fiziksel Tablo Yapısı:** Migration 6 ile veritabanı `trolleys` (`trolley_id`, `capacity`) ve `shells` (`shell_id`, `trolley_id`, `slot_number`, `status`, `history`) fiziki tablolarına geçirildi.
   - **Veri Tekrarı Temizliği:** `plc_data` kolonu kaldırılarak tüm PLC ölçümleri ve istasyon onayları tekil `history` JSON dizisinde birleştirildi. `trace.service.ts` metodları güncellendi.
   - **Değişen Dosyalar:** `migrations.ts`, `trace.service.ts`, `walkthrough.md`.
-
 - **2026-08-02 (QR Kod Üretim İstasyonu Akış İyileştirmesi & Özel Shell ID Desteği):**
   - **Araba Zorunluluğu Kaldırıldı:** QR Kod Üretim (`qr_generate`) istasyonunda araba (`trolley_id`) sorma zorunluluğu kaldırıldı.
   - **Düzenlenebilir Öneri & Pop-up:** "QR Kod Üret" butonuna tıklandığında backend `generateProductId()` ile önerilen Shell ID alınır, pop-up'ta gösterilir. Kullanıcı önerilen kodu kullanabilir veya kendi özel Shell ID'sini yazabilir.
   - **Unique Kontrolü & Yazdırma:** "Oluştur & Yazdır" butonunda Shell ID benzersizliği doğrulanır (duplicate engel) ve anında yazdırılabilir `QrLabelModal` etiketi açılır.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `station.engine.ts`, `trace.routes.ts`, `trace.service.ts` (fe), `tr.json`, `en.json`.
-
 - **2026-08-02 (Veritabanı Migrasyonu Düzeltmesi — Migration 7):**
   - **Kök Neden:** Mevcut veritabanı dosyalarında Migration 6 daha önceden uygulandığı için `shells` tablosu üzerinde `route_id` sütunu bulunmayan eski bir VIEW kalmıştı. Bu durum `no such column: route_id` hatasına yol açıyordu.
   - **Çözüm:** Migration 7 (`traceability_shells_trolleys_tables`) eklendi. SQLite üzerinde bir nesnenin tablo mu yoksa görünüm (view) mü olduğu `sqlite_master` üzerinden dinamik olarak kontrol edilerek `dropObject` fonksiyonuyla güvenle silindi ve `route_id` içeren fiziki tablolar oluşturuldu.
   - **Değişen Dosyalar:** `migrations.ts`.
-
 - **2026-08-02 (QR Kod Üretim İstasyonu Full-Width Tasarım Revizyonu):**
   - **Full-Width Düzen:** QR Kod Üretim istasyonu kutulu (boxed) yapıdan çıkarılıp tam sayfa genişliğine (`width: 100%`) kavuşturuldu.
   - **Hero Buton & Kart Mimarisi:** "QR KOD ÜRET" aksiyon butonu büyütüldü ve parlak amber gradyanı eklendi. Önceki QR kodların kart tasarımı durum rozeti, üretim saati ve geniş QR önizleme alanı ile yenilendi.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `trace.css`, `walkthrough.md`.
-
 - **2026-08-02 (Önceki QR Kodlar Kartında Etiket Görünümü Eşitlemesi):**
   - **Düzeltme:** "Önceki QR Kodlar" kartlarının içinde yer alan QR ve Shell ID görünümü, yazdırma pop-up'ındaki (`QrLabelModal`) etiket görünümü (`trace-qr-print`) ile birebir aynı etiket konteynerini kullanacak şekilde güncellendi.
   - **Değişen Dosyalar:** `StationWorkPage.tsx`, `QrLabelModal.tsx`, `trace.css`.
-
 - **2026-08-02 (Slot Detay Pop-up'ı — Mükerrer PLC Verisi Düzeltmesi):**
   - **Sorun:** Slot #1 Detayları pop-up'ında "PLC'den Okunan Canlı Veriler" bölümünde aynı tag (örn. Robot Funnel Screw Torque) iki kez görünüyordu. Kök neden: `capturePlcData`'da idempotency yoktu — trigger handshake tamamlanmadan yeniden yükselince aynı ürüne aynı istasyonda ikinci bir `done` kaydı yazılıyordu (SH-20260802-0001'de 2 adet `Araba Atama/done` kaydı).
   - **Backend düzeltmesi (`station.engine.ts`):** `capturePlcData`'ya yeniden tetik koruması eklendi — hedef ürün bu istasyonda zaten `done` kaydına sahipse veri yazılmaz (mükerrer kayıt atlanır), yalnızca handshake gönderilir ve uyarı loglanır. `hasRecord(productId, stationId, 'done')` filtresi ile.
@@ -215,27 +195,58 @@
   - **Veri temizliği:** SH-20260802-0001 history'sindeki mükerrer kayıt silindi (2 → 1 kayıt).
   - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache). DB'de artık tek `done` kaydı.
   - **Değişen Dosyalar:** `station.engine.ts`, `StationWorkPage.tsx`.
-
+- **2026-08-02 (Trolley Slotlarına QR Kart Animasyon/Efekt Eşitlemesi):**
+  - **İstek:** Önceki QR Kodlar kartlarındaki (`.trace-qr-card`) animasyon ve efektlerin aynısı trolley atama istasyonundaki slotlara uygulandı.
+  - **Uygulanan efektler:** `transition: all 0.25s ease`, hover'da `border-color: var(--accent)` + `transform: translateY(-3px)` + `box-shadow: 0 8px 24px rgba(0,0,0,0.25), 0 0 15px rgba(253,201,84,0.15)` (accent glow), `overflow: hidden`, active'de `scale(0.98)` geri bildirimi. Dolu slotlarda hover glow güçlendirildi (`0 0 20px rgba(253,201,84,0.3)`).
+  - **Kapsam:** Araba Atama istasyonundaki büyük slotlar (`.trace-sim-slot`) + TrolleysPage'deki mini slot ızgarası (`.trace-slot`) — her ikisi de artık QR kartlarıyla birebir aynı hover/transition davranışına sahip.
+  - **Doğrulama:** backend/frontend build temiz (PWA 42 precache).
+  - **Değişen Dosyalar:** `trace.css`.
 - **2026-08-02 (Araba Slot Düzeni 4x5 Yapılandırılması):**
   - **Görsel Düzen:** Araba slot ızgarası (`trace-sim-grid`) 5 sütun x 4 satırdan **4 sütun x 5 satır (4x5)** yapısına güncellendi.
   - **Değişen Dosyalar:** `trace.css`.
-
 - **2026-08-02 (PLC Trigger Araba Slot Ataması Düzeltmesi):**
   - **Kök Neden:** PLC trigger (`capturePlcData`) tetiklendiğinde araba slot ataması (`assignTrolleySlot`) koşulu yanlışlıkla yalnızca `source === 'plc'` durumuna kısıtlanmıştı. Konfigürasyonu `scan` olan istasyonlarda veya varsayılan ayarlarda trigger gelse dahi ürün araba slotuna atanmıyordu. Ayrıca hedef ürün tespiti PLC'den okuma başarısız olduğunda fallback yapmıyordu.
   - **Düzeltme (`station.engine.ts`):** İstasyonda aktif araba (`ctx.trolleyId`) onaylanmışsa, trigger çalıştığında hedef ürün `assignTrolleySlot(ctx.trolleyId, slot, productId)` ile anında araba slotuna atanacak şekilde genelleştirildi. `config.slotTagId`, `data` tag'i veya `nextFreeSlot` sırasıyla slot tespiti yapılır. Hedef ürün tespitine istasyon aktif ürünü ve son in_progress ürün fallback'leri eklendi.
   - **Değişen Dosyalar:** `station.engine.ts`.
-
 - **2026-08-02 (Katı Slot Tag Zorumluluğu & Hata Alarmı Entegrasyonu):**
   - **Kullanıcı Talimatı:** Otomatik slot belirleme ve fallback'ler kaldırıldı. Araba slot numarası **YALNIZCA PLC `slotTagId` tag'inden** okunmalıdır.
   - **Kural Entegrasyonu (`station.engine.ts`):** `config.slotTagId` tanımlanmamışsa veya PLC'den okunan slot numarası geçersiz/null dönüyorsa otomatik slot ataması YAPILMAZ; sisteme net açıklayıcı bir uyarı alarmı (`addAlarm`) eklenir.
   - **Değişen Dosyalar:** `station.engine.ts`.
-
-
-
-
-
-
-
-
-
-
+- **2026-08-02 (OPC'den Trolley ID Otomatik Aktif Araba — Manuel Girme Ekranı Kaldırıldı):**
+  - **Sorun:** Dolum istasyonunda sayfa açılışında "Lütfen Önce Bir Araba Onaylayın" girme ekranı çıkıyor; 1-2 sn sonra localStorage'daki eski kod ile `confirmTrolley` otomatik tetiklenip TR-001 yükleniyordu. Kullanıcı beklentisi: girme ekranı HİÇ çıkmasın, doğrudan OPC'den okunan Trolley ID'ye ait araba gösterilsin.
+  - **Backend (`trace.routes.ts`):** `GET /stations/:key/context` endpoint'ine OPC otomatik algılama eklendi — istasyon config'inde `plcId + trolleyIdTagId` tanımlıysa her context çağrısında `workerManager.readTag` ile Trolley ID okunur; kod değiştiyse `setActiveTrolley` ile aktif araba otomatik güncellenir (clearOnRead kuralları korunur). Kod sistemde kayıtlı değilse uyarı alarmı (`addAlarm`) düşülür; PLC okunamazsa mevcut bağlam korunur.
+  - **Frontend (`StationWorkPage.tsx`):** `ctxLoaded` state'i eklendi — ilk context yüklemesi bitmeden araba girme ekranı render edilmiyor (yanıp sönme engellendi). `trolleyIdTagId` tanımlı istasyonlarda (OPC-odaklı) localStorage `confirmTrolley` fallback'i tamamen kaldırıldı; araba yoksa manuel form yerine `trace.waitingOpcTrolley` bilgi mesajı gösterilir (3 sn polling ile OPC'den gelince otomatik yüklenir). `trolleyIdTagId` olmayan istasyonlarda eski manuel akış korunur.
+  - **i18n:** `trace.waitingOpcTrolley` (tr/en) eklendi.
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache).
+  - **Değişen Dosyalar:** `trace.routes.ts`, `StationWorkPage.tsx`, `tr.json`, `en.json`.
+- **2026-08-02 (OPC Trolley ID Eşleşme Hatası Gösterimi):**
+  - **İstek:** OPC'den gelen Trolley ID kayıtlı hiçbir arabayla eşleşmiyorsa kullanıcıya hata mesajı gösterilsin.
+  - **Backend (`trace.routes.ts`):** Context endpoint'i artık `unknownTrolley` alanı döndürür — OPC'den okunan kod `getTrolleyByCode` ile eşleşmezse kod response'a eklenir; ayrıca istasyon başına `lastUnknownTrolleyAlarm` Map'i ile yalnızca kod DEĞİŞTİĞİNDE (veya ilk tespitte) bir kez uyarı alarmı düşülür (3 sn polling'de alarm spam'i engellenir). Eşleşme olunca aktif araba otomatik güncellenmeye devam eder.
+  - **Frontend (`StationWorkPage.tsx` + `trace.service.ts`):** `unknownTrolley` state'i restore + 3 sn polling akışına bağlandı; değer varsa sayfa üstünde **danger Alert** (`trace.unknownTrolleyError`) gösterilir — kod açıkça yazar ve operatöre Arabalar sayfasından tanımlaması / doğru arabayı okutması söylenir. Kod geçerli bir arabayla eşleştiğinde hata otomatik kaybolur.
+  - **i18n:** `trace.unknownTrolleyError` (tr/en) eklendi.
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache).
+  - **Değişen Dosyalar:** `trace.routes.ts`, `trace.service.ts` (fe), `StationWorkPage.tsx`, `tr.json`, `en.json`.
+- **2026-08-02 (İstasyon Yeniden Adlandırma — "Trolley - Shell Eşleştirme"):**
+  - **İstek:** "Araba Atama" istasyonunun adı **"Trolley - Shell Eşleştirme"** olarak değiştirildi.
+  - **Migration 8 (`traceability_station_rename_trolley_shell`):** `UPDATE trace_stations SET name='Trolley - Shell Eşleştirme' WHERE key='trolley_assign'` — proje kuralına uygun olarak mevcut migration'a dokunulmadı, yeni migration eklendi; canlı DB'de uygulandı ve doğrulandı (id=2). İstasyon anahtarı (`trolley_assign`) ve tüm config/yetenekler aynen korunur — yalnızca görünen ad değişti.
+  - **i18n:** `trace.stationNamePlaceholder` örnekleri yeni adla güncellendi (tr: "örn. Dolum, Problama, Trolley-Shell Eşleştirme"; en: "e.g. Filling, Probing, Trolley-Shell Matching").
+  - **Doğrulama:** backend/frontend build temiz (PWA 42 precache).
+  - **Değişen Dosyalar:** `migrations.ts`, `tr.json`, `en.json`.
+- **2026-08-04 (OK/Hata Kontratı — Yükselen Kenarda Sonuç Temizleme):**
+  - **Kullanıcı talimatı:** Trigger biti TRUE (yükselen kenar) algılandığında, yeni işlem başlamadan ÖNCE önceki çevrimin Ack/Error/Mesaj değerleri PLC'de temizlenir. `capturePlcData` başına `clearResult()` eklendi (ack=false, error=false, mesaj='') — eski sonuçlar yeni işlem boyunca PLC'de kalmaz. İşlem sonunda `reportResult` yeni sonucu yazar (mevcut davranış).
+  - **Değişen Dosyalar:** `station.engine.ts`.
+- **2026-08-04 (Mimari Karar: PLC = OPC UA Server, MES = OPC UA Client + OK/Hata Kontratı):**
+  - **Kullanıcı talimatı:** MES Bridge (MES'in OPC UA **Server** olması) yaklaşımı İPTAL edildi. Mimari: **PLC = OPC UA Server, MES backend = OPC UA Client** (mevcut worker altyapısı korunur). REST'teki GET/POST mantığı tag sözleşmesiyle kurulur: GET = MES tag okur (subscribe/poll), POST = MES tag'e yazar; PLC→MES "push" = trigger biti subscription (kenar tespiti).
+  - **mes-bridge modülü kaldırıldı:** `modules/mes-bridge/` klasörü, `modules/index.ts` kaydı, `BridgePanel.tsx` + `bridge.service.ts` (fe), `plc.bridge.*` i18n, `core/events.ts`, bridge test scriptleri ve **node_modules debug patch'leri** (ua_variable_impl.js + validate_data_type_correctness.js geri alındı) temizlendi. Migration 10 → `mes_bridge_module_removed` (DB'den mes-bridge module/settings kayıtlarını siler; canlı DB'de uygulandı).
+  - **Yeni: OK/Hata sonuç kontratı (`ackTagId`/`errorTagId`/`errorMessageTagId`):** `StationConfig`'e 3 yeni alan; `capturePlcData` trigger işledikten sonra sonucu PLC'ye YAZAR — başarıda `ackTagId=true` (200 OK karşılığı), hatada (ürün bulunamadı / mükerrer kayıt) `errorTagId=true` + `errorMessageTagId`=açıklama (4xx karşılığı). Handshake (trigger=false) mevcut haliyle korunur. `reportResult(ok, message)` helper'ı yazma hatalarını yok sayar (salt okunur tag'e yazılırsa akış durmaz).
+  - **StationsPage:** `plc_acquire` yetenek konfigürasyonuna **OK (Ack) Biti** (BOOL), **Hata Biti** (BOOL), **Hata Mesajı Tag'i** (STRING) dropdown'ları + `ackErrorHint` açıklaması eklendi. i18n tr/en (`trace.ackTag/errorTag/errorMessageTag/ackErrorHint`).
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache). Not: dev sürecinde keşfedilen node-opcua istemci davranışı — `writeSingleNode` POJO `WriteValue` ile Variant'ı serileştirmiyor; çalışan desen `session.write({ nodeId, attributeId, value: { value: { dataType, value } } })` (adapter'daki mevcut desen, `workerManager.writeTag` üzerinden zaten kullanılıyor).
+  - **Değişen Dosyalar:** `trace.service.ts` (be+fe StationConfig), `station.engine.ts` (reportResult + çağrı noktaları), `StationsPage.tsx`, `migrations.ts`, `modules/index.ts`, `trace.routes.ts`, `PlcList.tsx`, `tr.json`, `en.json`.
+- **2026-08-02 (İstasyon Bölme — Funnel Sıkma + Trolley Yükleme):**
+  - **İstek:** "Trolley - Shell Eşleştirme" istasyonu ikiye bölündü; sıralama: **önce Funnel Sıkma, sonra Trolley Yükleme**. `trolley_assign` yeteneğinin görünen adı **"Trolley - Shell Eşleştirme"** oldu.
+  - **Migration 9 (`traceability_station_split_funnel_trolley`):** Mevcut istasyon (key=`trolley_assign`, id=2) → **"Trolley Yükleme"** (caps=[`trolley_read`, `trolley_assign`], sort=2); yeni istasyon **"Funnel Sıkma"** (key=`funnel_sikma`, id=13, caps=[`trolley_read`, `plc_acquire`], sort=1, PLC config mevcut istasyondan miras). Rota adımları: Funnel Sıkma Trolley Yükleme'nin hemen önüne eklendi — **iki fazlı kaydırma** (`-(seq+1)` → geri al) ile `UNIQUE(route_id, sequence)` ihlali önlendi. Sonuç rota: QR(0) → Funnel Sıkma(1) → Trolley Yükleme(2) → Dolum(3) → ... doğrulandı.
+  - **Backend `trolley_assign` yetenek desteği (yeni):** Daha önce yalnızca tip/i18n'de vardı, engine'de handler'ı yoktu. Artık: `tryAdvance` (plc_acquire || trolley_assign için 'done' şartı), `handleTrolleyRead` hasTrigger (iki yetenek de), `processScan` (trolley_assign → handlePlcAcquireScan), `plc-data-watcher` (trolley_assign'lı istasyonlar da izlenir — data tag'siz de çalışır, yalnız slot ataması).
+  - **i18n:** `trace.cap.trolley_assign` → tr "Trolley - Shell Eşleştirme" / en "Trolley - Shell Matching".
+  - **Doğrulama:** typecheck + backend/frontend build temiz (PWA 42 precache); canlı DB'de istasyon listesi + rota sıralaması doğrulandı.
+  - **Değişen Dosyalar:** `migrations.ts`, `station.engine.ts`, `plc-data-watcher.ts`, `tr.json`, `en.json`.
+- **2026-08-05 (İZLENEBİLİRLİK v2 — BÜYÜK YENİDEN YAPI):** Kullanıcı talebiyle yetenek sistemi + Rotalar kaldırıldı; sabit istasyon tipleri + standart PLC sözleşmesi + web'den ölçüm düzenleme. Detaylar yukarıda "v2 Mimari Özeti" bölümünde. **Doğrulama:** typecheck + build temiz (PWA 42), Migration 11 canlı DB'de (18/18 kopya testi), **e2e 34/34** (OPC UA sim :4841 — 6 istasyon akışı + hata kontratı + manuel trigger + ölçüm CRUD), tarayıcıda StationsPage (tip kolonu) + Dolum çalışma sayfası (LastCapture + manuel giriş + 4x5 grid) + slot pop-up'ı (ölçüm düzenle/sil/ekle) doğrulandı. **Değişen dosyalar:** `migrations.ts` (M11), `trace.service.ts`, `station.engine.ts`, `trace.routes.ts`, `plc-data-watcher.ts`, `index.ts` (be); `trace.service.ts`, `StationsPage.tsx`, `StationWorkPage.tsx`, `ProductsPage.tsx`, `TrolleysPage.tsx`, `MeasurementEditor.tsx` (yeni), `TrolleyGrid.tsx` (yeni), `App.tsx`, `Layout.tsx`, `tr.json`, `en.json`, `trace.css` (fe); `RoutesPage.tsx` silindi; `opcua-sim.mjs` (sözleşme tag'leri), `migration11-test.mjs` + `trace-e2e-test.mjs` (yeni testler).

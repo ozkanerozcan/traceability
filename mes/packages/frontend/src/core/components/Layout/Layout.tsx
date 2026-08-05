@@ -21,7 +21,6 @@ import {
   ChevronDown,
   Package,
   ShoppingCart,
-  Route as RouteIcon,
   BellRing,
   Wrench,
 } from 'lucide-react';
@@ -46,7 +45,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/trace/stations', icon: <Wrench size={18} />, labelKey: 'nav.traceStations' },
   { to: '/trace/products', icon: <Package size={18} />, labelKey: 'nav.traceProducts' },
   { to: '/trace/trolleys', icon: <ShoppingCart size={18} />, labelKey: 'nav.traceTrolleys' },
-  { to: '/trace/routes', icon: <RouteIcon size={18} />, labelKey: 'nav.traceRoutes' },
   { to: '/trace/alarms', icon: <BellRing size={18} />, labelKey: 'nav.traceAlarms' },
   { to: '/users', icon: <Users size={18} />, labelKey: 'nav.users', adminOnly: true },
   { to: '/settings', icon: <Settings size={18} />, labelKey: 'nav.settings', adminOnly: true },

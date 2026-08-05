@@ -145,6 +145,15 @@
 - [x] **Nihai 2-Tablolu Sade Mimarisi (`trolleys` & `shells`):** Veritabanı `trolleys` (`trolley_id`, `capacity`) ve `shells` (`shell_id`, `trolley_id`, `slot_number`, `status`, `history`) fiziki tablolarına geçirildi. `plc_data` kolonu kaldırılarak tüm PLC ölçümleri ve istasyon verileri tekil `history` JSON dizisinde birleştirildi.
 - [x] **QR Kod Üretim İstasyonu Akış İyileştirmesi:** Araba zorunluluğu kaldırıldı; "QR Kod Üret" butonunda otomatik Shell ID önerisini düzenlenebilir pop-up'ta sunan, benzersizlik doğrulaması yapan ve oluşturulan QR kodunu anında yazdıran akış tamamlandı.
 
+## What Works (İstasyon turu #6+ ve Mimari Kararlar — 2026-08-02 → 2026-08-04)
+- [x] **Slot Detay pop-up mükerrer veri düzeltmesi:** `capturePlcData` idempotency koruması (`hasRecord(productId, stationId, 'done')`) — aynı veri aynı shell içinde yalnızca BİR KEZ yazılır; pop-up tag başına tek (en güncel) kart gösterir; DB mükerrer kayıt temizlendi.
+- [x] **Slot animasyon eşitlemesi:** QR kart efektleri (hover translateY(-3px) + amber glow, 0.25s transition, active scale) trolley slotlarına (`.trace-sim-slot` + `.trace-slot`) uygulandı.
+- [x] **OPC Trolley ID otomatik aktif araba:** `GET /stations/:key/context` `trolleyIdTagId`'den okuyup aktif arabayı otomatik günceller; frontend `ctxLoaded` ile girme ekranı yanıp sönmesi engellendi; kayıtsız kod → `unknownTrolley` + danger Alert + spam'siz alarm.
+- [x] **İstasyon yeniden adlandırma (Migration 8):** "Araba Atama" → "Trolley - Shell Eşleştirme".
+- [x] **İstasyon bölme (Migration 9):** **Funnel Sıkma** (yeni, trolley_read+plc_acquire, rota önce) + **Trolley Yükleme** (trolley_read+trolley_assign, rota sonra). Backend'de `trolley_assign` engine desteği eklendi (tryAdvance/handleTrolleyRead/processScan/plc-data-watcher kapsamı).
+- [x] **Mimari karar (2026-08-04): PLC = OPC UA Server, MES = OPC UA Client.** MES Bridge (MES'in OPC UA Server olması) yaklaşımı iptal + tamamen kaldırıldı (modül, frontend, DB kayıtları, debug patch'leri temizlendi; Migration 10 `mes_bridge_module_removed`).
+- [x] **OK/Hata sonuç kontratı:** `StationConfig.ackTagId`/`errorTagId`/`errorMessageTagId` — `capturePlcData` her trigger sonucunu PLC'ye yazar (başarıda OK biti=true; hatada Hata biti=true + mesaj). StationsPage plc_acquire konfigürasyonunda üç dropdown + i18n (tr/en). **Yükselen kenarda temizleme:** `clearResult()` yeni işlem başlarken önceki çevrimin sonuçlarını PLC'de sıfırlar.
+
 ## Not Started
 - Faz 7: service worker (already via vite-plugin-pwa generateSW), offline cache strategy, manifest/icons (icon.svg present), add-to-homescreen, responsive polish, Docker optimization.
 

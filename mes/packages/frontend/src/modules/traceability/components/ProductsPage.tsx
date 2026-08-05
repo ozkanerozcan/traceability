@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Printer, Trash2 } from 'lucide-react';
 import { Alert, Badge, Button, ConfirmDialog, Modal, Select, Table, useToast } from '../../../core/components/common';
-import { traceService, type Product, type QrLabel, type StationRecord } from '../services/trace.service';
+import { traceService, type Measurement, type Product, type QrLabel, type StationRecord } from '../services/trace.service';
 import QrLabelModal from './QrLabelModal';
+import MeasurementEditor from './MeasurementEditor';
 
 const STATUS_VARIANT: Record<Product['status'], 'info' | 'success' | 'danger'> = {
   in_progress: 'info',
@@ -18,7 +19,7 @@ export default function ProductsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ product: Product; records: StationRecord[] } | null>(null);
+  const [detail, setDetail] = useState<{ product: Product; records: StationRecord[]; measurements: Measurement[] } | null>(null);
   const [qrLabel, setQrLabel] = useState<QrLabel | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -88,6 +89,12 @@ export default function ProductsPage() {
     }
   };
 
+  // Detay pop-up'ındaki ölçümleri istasyon bazında grupla
+  const measurementsByStation = (detail?.measurements ?? []).reduce<Record<string, Measurement[]>>((acc, m) => {
+    (acc[m.stationKey] ??= []).push(m);
+    return acc;
+  }, {});
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
@@ -119,7 +126,8 @@ export default function ProductsPage() {
             <tr>
               <th>{t('trace.productId')}</th>
               <th>{t('common.status')}</th>
-              <th>{t('trace.currentStation')}</th>
+              <th>{t('trace.trolley')}</th>
+              <th>{t('trace.slotNo')}</th>
               <th>{t('common.createdAt')}</th>
               <th style={{ width: 120 }}>{t('common.actions')}</th>
             </tr>
@@ -135,7 +143,8 @@ export default function ProductsPage() {
                 <td>
                   <Badge variant={STATUS_VARIANT[p.status]}>{t(`trace.status.${p.status}`)}</Badge>
                 </td>
-                <td className="text-muted">#{p.current_step_index}</td>
+                <td className="text-muted">{p.trolley_code ?? '—'}</td>
+                <td className="text-muted">{p.slot_number ?? '—'}</td>
                 <td className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>
                   {new Date(p.created_at + 'Z').toLocaleString()}
                 </td>
@@ -158,46 +167,79 @@ export default function ProductsPage() {
       {/* ─── Ürün detayı ─── */}
       <Modal open={detail !== null} wide title={detail?.product.product_id ?? ''} onClose={() => setDetail(null)}>
         {detail && (
-          <>
-            <div className="flex gap-2 mb-4" style={{ flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+            <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
               <Badge variant={STATUS_VARIANT[detail.product.status]}>
                 {t(`trace.status.${detail.product.status}`)}
               </Badge>
-              <Badge variant="muted">{t('trace.step', { index: detail.product.current_step_index })}</Badge>
+              {detail.product.trolley_code && (
+                <Badge variant="info">
+                  {detail.product.trolley_code}
+                  {detail.product.slot_number ? ` #${detail.product.slot_number}` : ''}
+                </Badge>
+              )}
             </div>
-            {detail.records.length === 0 ? (
-              <p className="text-muted">{t('trace.noRecords')}</p>
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <th>{t('trace.station')}</th>
-                    <th>{t('common.status')}</th>
-                    <th>{t('trace.batchNo')}</th>
-                    <th>{t('audit.time')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.records.map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.station_name}</td>
-                      <td>
-                        {r.status ? (
-                          <Badge variant={r.status === 'ok' ? 'success' : r.status === 'nok' ? 'danger' : 'muted'}>
-                            {r.status}
-                          </Badge>
-                        ) : '—'}
-                      </td>
-                      <td className="text-muted">{r.batch_no ?? '—'}</td>
-                      <td className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
-                        {new Date(r.created_at + 'Z').toLocaleString()}
-                      </td>
+
+            {/* Ölçümler — istasyon bazında, düzenlenebilir */}
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
+                📊 {t('trace.measurements')}
+              </div>
+              {Object.keys(measurementsByStation).length === 0 ? (
+                <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noMeasurements')}</p>
+              ) : (
+                Object.entries(measurementsByStation).map(([stationKey, items]) => (
+                  <div key={stationKey} style={{ marginBottom: 'var(--space-4)' }}>
+                    <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
+                      {stationKey}
+                    </div>
+                    <MeasurementEditor
+                      shellId={detail.product.product_id}
+                      stationKey={stationKey}
+                      onChanged={() => void openDetail(detail.product.product_id)}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* İstasyon geçmişi (olay günlüğü) */}
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-3)' }}>
+                📜 {t('trace.stationHistoryTitle')}
+              </div>
+              {detail.records.length === 0 ? (
+                <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noRecords')}</p>
+              ) : (
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>{t('trace.station')}</th>
+                      <th>{t('common.status')}</th>
+                      <th>{t('audit.time')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-          </>
+                  </thead>
+                  <tbody>
+                    {detail.records.map((r, idx) => (
+                      <tr key={r.id ?? idx}>
+                        <td>{r.station_name}</td>
+                        <td>
+                          {r.status ? (
+                            <Badge variant={r.status === 'ok' || r.status === 'done' ? 'success' : r.status === 'nok' ? 'danger' : 'muted'}>
+                              {r.status}
+                            </Badge>
+                          ) : '—'}
+                        </td>
+                        <td className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
+                          {new Date((r.created_at ?? '') + 'Z').toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </div>
+          </div>
         )}
       </Modal>
 

@@ -1,15 +1,18 @@
 import { workerManager } from '../plc-gateway/workers/worker.manager.js';
 import type { TagValue } from '../plc-gateway/plc.types.js';
-import { capturePlcData } from './station.engine.js';
-import { listStations, parseCapabilities, parseConfig } from './trace.service.js';
+import { handleStationTrigger } from './station.engine.js';
+import { listStations, parseConfig, PLC_STATION_TYPES, type StationType } from './trace.service.js';
 
 /**
- * PLC Data Tetikleyici İzleyici (plc_acquire).
+ * PLC Trigger İzleyici.
  *
- * Her istasyonun config'indeki trigger bitini (triggerTagId) canlı PLC veri
- * akışında (workerManager.onData) izler. Bit false→true (yükselen kenar)
- * olunca capturePlcData çağrılır — seçili data tag'leri istasyonun AKTİF
- * ürününe yazılır.
+ * PLC'li tüm istasyonların (trolley_read, funnel_screwing,
+ * trolley_shell_matching, filling, probing) config'indeki trigger bitini
+ * (triggerTagId) canlı PLC veri akışında (workerManager.onData) izler.
+ * Bit false→true (yükselen kenar) olunca handleStationTrigger çağrılır —
+ * standart sözleşme tag'leri okunur, istasyon tipine göre işlenir, sonuç
+ * (Ack/ErrorCode/ErrorMessage/Busy) PLC'ye yazılır ve trigger false'a
+ * çekilir (handshake).
  *
  * İzleme, worker'ın mevcut subscription/poll akışını kullanır; ayrıca bir
  * polling döngüsü GEREKMEZ. OPC UA subscribe modunda trigger tag'i yalnızca
@@ -38,12 +41,10 @@ export function reloadPlcDataWatches(): void {
   const next: TriggerWatch[] = [];
   for (const station of listStations()) {
     if (station.is_active !== 1) continue;
-    const caps = parseCapabilities(station.capabilities);
-    if (!caps.includes('plc_acquire')) continue;
+    if (!PLC_STATION_TYPES.includes(station.type as StationType)) continue;
     const cfg = parseConfig(station.config);
-    if (cfg.plcId && cfg.triggerTagId && cfg.dataTagIds && cfg.dataTagIds.length > 0) {
-      next.push({ stationId: station.id, plcId: cfg.plcId, triggerTagId: cfg.triggerTagId });
-    }
+    if (!cfg.plcId || !cfg.triggerTagId) continue;
+    next.push({ stationId: station.id, plcId: cfg.plcId, triggerTagId: cfg.triggerTagId });
   }
   watches = next;
   // Artık izlenmeyen istasyonların kenar durumunu temizle
@@ -62,9 +63,9 @@ function handleData(plcId: number, values: TagValue[]): void {
     const prev = lastTriggerState.get(w.stationId) ?? false;
     lastTriggerState.set(w.stationId, bool);
     if (bool && !prev) {
-      // Yükselen kenar → veriyi AKTİF ürüne yaz
-      capturePlcData(w.stationId).catch((err) => {
-        console.error(`[plc-data-watcher] capture hatası (istasyon ${w.stationId}):`, err);
+      // Yükselen kenar → istasyonu tetikle
+      handleStationTrigger(w.stationId, { source: 'plc' }).catch((err) => {
+        console.error(`[plc-data-watcher] trigger hatası (istasyon ${w.stationId}):`, err);
       });
     }
   }

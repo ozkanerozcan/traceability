@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, Play, Wrench, Settings, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Wrench } from 'lucide-react';
 import { Alert, Badge, Button, Checkbox, ConfirmDialog, EmptyState, Input, Modal, Select, Table, useToast } from '../../../core/components/common';
-import { traceService, CAPABILITY_KEYS, type Station, type StationCapability, type StationConfig } from '../services/trace.service';
+import { traceService, STATION_TYPES, PLC_STATION_TYPES, type Station, type StationConfig, type StationType } from '../services/trace.service';
 import { plcService, tagService, type PlcProfile, type PlcTag } from '../../plc-gateway/services/plc.service';
 import TagMultiSelect from './TagMultiSelect';
 
@@ -93,7 +93,7 @@ export default function StationsPage() {
           <thead>
             <tr>
               <th>{t('common.name')}</th>
-              <th>{t('trace.capabilities')}</th>
+              <th>{t('trace.stationType')}</th>
               <th>{t('common.status')}</th>
               <th style={{ width: 160 }}>{t('common.actions')}</th>
             </tr>
@@ -106,11 +106,7 @@ export default function StationsPage() {
                   <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}>{s.key}</div>
                 </td>
                 <td>
-                  <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
-                    {s.capabilities.map((c) => (
-                      <Badge key={c} variant="info">{t(`trace.cap.${c}`)}</Badge>
-                    ))}
-                  </div>
+                  <Badge variant={s.type === 'legacy' ? 'muted' : 'info'}>{t(`trace.type.${s.type}`, { defaultValue: s.type })}</Badge>
                 </td>
                 <td>
                   {s.isActive ? (
@@ -177,21 +173,7 @@ function slugify(s: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-/** İstasyon tipini yeteneklerden OTOMATİK türetir (formdan elle seçilmez). */
-function deriveType(caps: StationCapability[]): string {
-  if (caps.includes('qr_generate')) return 'qr';
-  if (caps.includes('trolley_read')) return 'trolley';
-  if (caps.includes('plc_acquire')) return 'plc';
-  if (caps.includes('wait_control')) return 'wait';
-  if (caps.includes('ok_nok')) return 'check';
-  if (caps.includes('batch_assign')) return 'assembly';
-  return 'generic';
-}
-
-/** Konfigürasyon gerektiren yetenekler */
-const CONFIGURABLE: StationCapability[] = ['qr_generate', 'trolley_read', 'trolley_assign', 'plc_acquire', 'wait_control', 'batch_assign'];
-
-// ─── İstasyon Formu ─────────────────────────────────────────────────────────
+// ─── İstasyon Formu (tip bazlı — her tip kendi ayarlarına sahip) ────────────
 
 interface StationFormProps {
   open: boolean;
@@ -209,35 +191,47 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
   const isEdit = !!station;
 
   const [name, setName] = useState('');
-  const [caps, setCaps] = useState<StationCapability[]>([]);
+  const [type, setType] = useState<StationType | 'legacy'>('qr_generate');
   const [config, setConfig] = useState<StationConfig>({});
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [configuring, setConfiguring] = useState<StationCapability | null>(null);
 
   useEffect(() => {
     if (open) {
       setName(station?.name ?? '');
-      setCaps(station?.capabilities ?? []);
+      setType((station?.type as StationType) ?? 'qr_generate');
       setConfig(station?.config ?? {});
       setIsActive(station?.isActive ?? true);
       setError(null);
-      setConfiguring(null);
       if (station?.config.plcId) onPlcChange(station.config.plcId);
     }
   }, [open, station, onPlcChange]);
 
   // Anahtar: düzenlemede mevcut, yeni kayıtta isimden otomatik üretilir
   const key = isEdit ? station.key : slugify(name);
-  const type = deriveType(caps);
+  const isPlcStation = PLC_STATION_TYPES.includes(type as StationType);
 
-  const toggleCap = (c: StationCapability) => {
-    setCaps((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  const set = <K extends keyof StationConfig>(k: K, value: StationConfig[K] | undefined) => {
+    setConfig((prev) => ({ ...prev, [k]: value }));
   };
-  const removeCap = (c: StationCapability) => {
-    setCaps((prev) => prev.filter((x) => x !== c));
+
+  const handlePlcSelect = (plcId: number | undefined) => {
+    setConfig((prev) => ({
+      ...prev,
+      plcId,
+      triggerTagId: undefined,
+      shellIdTagId: undefined,
+      trolleyIdTagId: undefined,
+      slotTagId: undefined,
+      rowTagId: undefined,
+      dataTagIds: [],
+      ackTagId: undefined,
+      errorCodeTagId: undefined,
+      errorMessageTagId: undefined,
+      busyTagId: undefined,
+    }));
+    if (plcId) onPlcChange(plcId);
   };
 
   const handleSubmit = async () => {
@@ -253,11 +247,10 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
           name: name.trim(),
           type,
           is_active: isActive,
-          capabilities: caps,
           config,
         });
       } else {
-        await traceService.createStation({ key, name: name.trim(), type, capabilities: caps, config });
+        await traceService.createStation({ key, name: name.trim(), type, config });
       }
       toast.success(t('common.success'));
       onSaved();
@@ -269,155 +262,57 @@ function StationForm({ open, onClose, onSaved, station, plcs, tags, onPlcChange 
     }
   };
 
-  return (
-    <>
-      <Modal
-        open={open}
-        title={isEdit ? t('trace.editStation') : t('trace.addStation')}
-        onClose={onClose}
-        footer={
-          <>
-            <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-            <Button onClick={handleSubmit} disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
-          </>
-        }
-      >
-        {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
-
-        <Input label={t('common.name')} value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder={t('trace.stationNamePlaceholder')} />
-
-        {/* Anahtar + Tip — otomatik (elle girilmez) */}
-        <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-4)' }}>
-          {t('trace.stationKey')}: <span style={{ fontFamily: 'var(--font-mono)' }}>{key || '—'}</span>
-          {'  •  '}
-          {t('trace.stationType')}: {t(`trace.type.${type}`)}
-          {'  '}
-          <span>({t('trace.autoDerived')})</span>
-        </div>
-
-        {/* Atanan yetenekler */}
-        <div className="form-group">
-          <span className="form-label">{t('trace.capabilities')}</span>
-          <div className="trace-cap-chips">
-            {caps.map((c) => (
-              <div key={c} className="trace-cap-chip">
-                <span className="trace-cap-chip-label">{t(`trace.cap.${c}`)}</span>
-                {CONFIGURABLE.includes(c) && (
-                  <button
-                    type="button"
-                    className="btn-icon trace-cap-chip-btn"
-                    title={t('trace.configureCapability')}
-                    onClick={() => setConfiguring(c)}
-                  >
-                    <Settings size={13} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn-icon trace-cap-chip-btn"
-                  title={t('common.delete')}
-                  onClick={() => removeCap(c)}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-            <button type="button" className="trace-cap-add" onClick={() => setPickerOpen(true)}>
-              <Plus size={14} /> {t('trace.addCapability')}
-            </button>
-          </div>
-          {caps.length === 0 && (
-            <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>{t('trace.noCapabilities')}</p>
-          )}
-        </div>
-
-        <Checkbox label={t('common.active')} checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-      </Modal>
-
-      {/* Yetenek seçimi (çoklu) — iç içe pop-up */}
-      <CapabilityPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        caps={caps}
-        onToggle={toggleCap}
-      />
-
-      {/* Yetenek konfigürasyonu — iç içe pop-up */}
-      <CapabilityConfig
-        cap={configuring}
-        onClose={() => setConfiguring(null)}
-        config={config}
-        onChange={setConfig}
-        plcs={plcs}
-        tags={tags}
-        onPlcChange={onPlcChange}
-      />
-    </>
+  // Tag seçici yardımcısı
+  const TagSelectField = ({ label, cfgKey, filter }: { label: string; cfgKey: keyof StationConfig; filter?: (tg: PlcTag) => boolean }) => (
+    <Select
+      label={label}
+      value={(config[cfgKey] as number | undefined) ?? ''}
+      onChange={(e) => set(cfgKey, e.target.value ? Number(e.target.value) : undefined)}
+      disabled={!config.plcId}
+    >
+      <option value="">{t('trace.noTag')}</option>
+      {tags.filter((tg) => (filter ? filter(tg) : true)).map((tg) => (
+        <option key={tg.id} value={tg.id}>{tg.name}</option>
+      ))}
+    </Select>
   );
-}
 
-// ─── Yetenek Seçici (çoklu) ─────────────────────────────────────────────────
-
-interface CapabilityPickerProps {
-  open: boolean;
-  onClose: () => void;
-  caps: StationCapability[];
-  onToggle: (c: StationCapability) => void;
-}
-
-function CapabilityPicker({ open, onClose, caps, onToggle }: CapabilityPickerProps) {
-  const { t } = useTranslation();
   return (
     <Modal
       open={open}
-      title={t('trace.selectCapabilities')}
+      title={isEdit ? t('trace.editStation') : t('trace.addStation')}
       onClose={onClose}
-      modalStack
-      footer={<Button onClick={onClose}>{t('common.confirm')}</Button>}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+          <Button onClick={handleSubmit} disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
+        </>
+      }
     >
-      <div className="form-group">
-        <div className="flex gap-3" style={{ flexWrap: 'wrap', flexDirection: 'column', alignItems: 'flex-start' }}>
-          {CAPABILITY_KEYS.map((c) => (
-            <Checkbox key={c} label={t(`trace.cap.${c}`)} checked={caps.includes(c)} onChange={() => onToggle(c)} />
-          ))}
-        </div>
+      {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
+
+      <Input label={t('common.name')} value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder={t('trace.stationNamePlaceholder')} />
+
+      {/* Anahtar — otomatik */}
+      <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-4)' }}>
+        {t('trace.stationKey')}: <span style={{ fontFamily: 'var(--font-mono)' }}>{key || '—'}</span>
+        {'  '}
+        <span>({t('trace.autoDerived')})</span>
       </div>
-    </Modal>
-  );
-}
 
-// ─── Yetenek Konfigürasyonu ─────────────────────────────────────────────────
+      {/* İstasyon Tipi */}
+      <Select label={t('trace.stationType')} value={type} onChange={(e) => setType(e.target.value as StationType)}>
+        {STATION_TYPES.map((st) => (
+          <option key={st} value={st}>{t(`trace.type.${st}`)}</option>
+        ))}
+        {type === 'legacy' && <option value="legacy">{t('trace.type.legacy')}</option>}
+      </Select>
+      <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-4)' }}>
+        {t(`trace.typeDesc.${type}`, { defaultValue: '' })}
+      </p>
 
-interface CapabilityConfigProps {
-  cap: StationCapability | null;
-  onClose: () => void;
-  config: StationConfig;
-  onChange: (c: StationConfig) => void;
-  plcs: PlcProfile[];
-  tags: PlcTag[];
-  onPlcChange: (plcId: number) => void;
-}
-
-function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcChange }: CapabilityConfigProps) {
-  const { t } = useTranslation();
-  if (!cap) return null;
-
-  const set = <K extends keyof StationConfig>(key: K, value: StationConfig[K] | undefined) => {
-    onChange({ ...config, [key]: value });
-  };
-
-  const shellSrc: 'plc' | 'trolley' = config.shellIdSource === 'trolley' ? 'trolley' : 'plc';
-
-  return (
-    <Modal
-      open={cap !== null}
-      title={t('trace.configureCapabilityTitle', { cap: t(`trace.cap.${cap}`) })}
-      onClose={onClose}
-      modalStack
-      footer={<Button onClick={onClose}>{t('common.save')}</Button>}
-    >
-      {/* QR Üretimi — etiket boyutu */}
-      {cap === 'qr_generate' && (
+      {/* ─── QR Kod Üretim ayarları ─── */}
+      {type === 'qr_generate' && (
         <div className="flex gap-3">
           <div style={{ flex: 1 }}>
             <Input label={t('trace.labelWidth')} type="number" min={10} max={300} value={config.labelWidth ?? 50} onChange={(e) => set('labelWidth', Number(e.target.value))} />
@@ -428,200 +323,126 @@ function CapabilityConfig({ cap, onClose, config, onChange, plcs, tags, onPlcCha
         </div>
       )}
 
-      {/* Araba Okuma — otomatik temizleme */}
-      {cap === 'trolley_read' && (
-        <Checkbox
-          label={t('trace.clearOnRead')}
-          checked={config.clearOnRead ?? true}
-          onChange={(e) => set('clearOnRead', e.target.checked)}
-        />
-      )}
-
-      {/* Bekleme Kontrolü — süre */}
-      {cap === 'wait_control' && (
-        <Input label={t('trace.waitHours')} type="number" min={1} value={config.waitHours ?? 24} onChange={(e) => set('waitHours', Number(e.target.value))} />
-      )}
-
-      {/* Parti Bağlama — bileşen tipi */}
-      {cap === 'batch_assign' && (
-        <Select label={t('trace.componentKind')} value={config.componentKind ?? 'material'} onChange={(e) => set('componentKind', e.target.value as 'material' | 'component')}>
-          <option value="material">{t('trace.kind.material')}</option>
-          <option value="component">{t('trace.kind.component')}</option>
-        </Select>
-      )}
-
-      {/* PLC Data — tam konfigürasyon */}
-      {cap === 'plc_acquire' && (
+      {/* ─── PLC Sözleşmesi (PLC'li istasyonlar) ─── */}
+      {isPlcStation && (
         <>
-          {/* PLC Seçimi */}
-          <Select
-            label={t('trace.plc')}
-            value={config.plcId ?? ''}
-            onChange={(e) => {
-              const v = e.target.value ? Number(e.target.value) : undefined;
-              onChange({ ...config, plcId: v, triggerTagId: undefined, shellIdTagId: undefined, rowTagId: undefined, dataTagIds: [] });
-              if (v) onPlcChange(v);
-            }}
-          >
-            {plcs.length === 0 ? (
-              <option value="" disabled>{t('trace.noPlcAvailable')}</option>
-            ) : null}
+          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-2)' }}>
+            ⚡ {t('trace.plcContract')}
+          </div>
+
+          <Select label={t('trace.plc')} value={config.plcId ?? ''} onChange={(e) => handlePlcSelect(e.target.value ? Number(e.target.value) : undefined)}>
+            <option value="">{t('trace.selectPlc')}</option>
             {plcs.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
+            {plcs.length === 0 && <option value="" disabled>{t('trace.noPlcAvailable')}</option>}
           </Select>
 
-          {/* Trigger Biti — yalnız subscribe + BOOL */}
+          {/* Trigger — yalnız subscribe + BOOL */}
           <Select
             label={t('trace.triggerTag')}
             value={config.triggerTagId ?? ''}
             onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)}
             disabled={!config.plcId}
           >
-            {config.plcId && tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').length === 0 ? (
-              <option value="" disabled>{t('trace.noBoolTag')}</option>
-            ) : null}
+            <option value="">{t('trace.noTag')}</option>
             {tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').map((tg) => (
               <option key={tg.id} value={tg.id}>{tg.name}</option>
             ))}
+            {config.plcId && tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').length === 0 && (
+              <option value="" disabled>{t('trace.noBoolTag')}</option>
+            )}
           </Select>
-
-          {/* Shell ID Kaynağı */}
-          <Select
-            label={t('trace.shellIdSource')}
-            value={shellSrc}
-            onChange={(e) => set('shellIdSource', e.target.value as 'plc' | 'trolley')}
-            disabled={!config.plcId}
-          >
-            <option value="plc">{t('trace.src.plc')}</option>
-            <option value="trolley">{t('trace.src.trolley')}</option>
-          </Select>
-
-          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))' }}>
+          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-3)' }}>
             {t('trace.triggerSubscribeHint')}
           </p>
 
-          {shellSrc === 'plc' && (
-            <Select label={t('trace.shellIdTag')} value={config.shellIdTagId ?? ''} onChange={(e) => set('shellIdTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
-              <option value="">{t('trace.noTag')}</option>
-              {tags.map((tg) => (
-                <option key={tg.id} value={tg.id}>{tg.name}</option>
-              ))}
-            </Select>
+          {/* Tip bazında sözleşme alanları */}
+          {type === 'trolley_read' && (
+            <TagSelectField label={t('trace.trolleyIdTag')} cfgKey="trolleyIdTagId" />
           )}
 
-          {shellSrc === 'trolley' && (
-            <>
-              <Select label={t('trace.trolleyIdTag')} value={config.trolleyIdTagId ?? ''} onChange={(e) => set('trolleyIdTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
-                <option value="">{t('trace.noTag')}</option>
-                {tags.map((tg) => (
-                  <option key={tg.id} value={tg.id}>{tg.name}</option>
-                ))}
-              </Select>
+          {type === 'funnel_screwing' && (
+            <TagSelectField label={t('trace.shellIdTag')} cfgKey="shellIdTagId" />
+          )}
 
-              <div className="flex gap-3">
-                <div style={{ flex: 1 }}>
-                  <Select label={t('trace.trolleyMatch')} value={config.trolleyMatchMode ?? 'all'} onChange={(e) => set('trolleyMatchMode', e.target.value as 'row' | 'all')}>
-                    <option value="all">{t('trace.match.all')}</option>
-                    <option value="row">{t('trace.match.row')}</option>
-                  </Select>
-                </div>
-                {(config.trolleyMatchMode ?? 'all') === 'row' && (
-                  <div style={{ flex: 1 }}>
-                    <Select label={t('trace.rowTag')} value={config.rowTagId ?? ''} onChange={(e) => set('rowTagId', e.target.value ? Number(e.target.value) : undefined)} disabled={!config.plcId}>
-                      <option value="">{t('trace.noTag')}</option>
-                      {tags.map((tg) => (
-                        <option key={tg.id} value={tg.id}>{tg.name}</option>
-                      ))}
-                    </Select>
-                  </div>
-                )}
-              </div>
+          {type === 'trolley_shell_matching' && (
+            <>
+              <TagSelectField label={t('trace.shellIdTag')} cfgKey="shellIdTagId" />
+              <TagSelectField label={t('trace.slotTag')} cfgKey="slotTagId" filter={(tg) => tg.dataType !== 'BOOL' && tg.dataType !== 'STRING'} />
             </>
           )}
 
+          {(type === 'filling' || type === 'probing') && (
+            <TagSelectField label={t('trace.trolleyIdTag')} cfgKey="trolleyIdTagId" />
+          )}
+
+          {type === 'filling' && (
+            <>
+              <TagSelectField label={t('trace.rowTag')} cfgKey="rowTagId" filter={(tg) => tg.dataType !== 'BOOL' && tg.dataType !== 'STRING'} />
+              <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-3)' }}>
+                {t('trace.rowTagHint')}
+              </p>
+            </>
+          )}
+
+          {/* Data/<tagAdı> — ölçüm alanları */}
+          {(type === 'funnel_screwing' || type === 'filling' || type === 'probing') && config.plcId && (
+            <>
+              <TagMultiSelect
+                label={t('trace.dataTags')}
+                tags={tags}
+                selectedIds={config.dataTagIds ?? []}
+                onChange={(ids) => set('dataTagIds', ids)}
+              />
+              <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-3)' }}>
+                {t('trace.dataTagsHint')}
+              </p>
+            </>
+          )}
+
+          {/* Sonuç tag'leri (MES → PLC) */}
           {config.plcId && (
-            <TagMultiSelect
-              label={t('trace.dataTags')}
-              tags={tags}
-              selectedIds={config.dataTagIds ?? []}
-              onChange={(ids) => set('dataTagIds', ids)}
-              disabled={!config.plcId}
-            />
+            <>
+              <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', margin: 'var(--space-3) 0 var(--space-2) 0' }}>
+                📤 {t('trace.resultTags')}
+              </div>
+              <div className="flex gap-3">
+                <div style={{ flex: 1 }}>
+                  <TagSelectField label={t('trace.ackTag')} cfgKey="ackTagId" filter={(tg) => tg.dataType === 'BOOL'} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <TagSelectField label={t('trace.busyTag')} cfgKey="busyTagId" filter={(tg) => tg.dataType === 'BOOL'} />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div style={{ flex: 1 }}>
+                  <TagSelectField label={t('trace.errorCodeTag')} cfgKey="errorCodeTagId" filter={(tg) => tg.dataType !== 'BOOL' && tg.dataType !== 'STRING'} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <TagSelectField label={t('trace.errorMessageTag')} cfgKey="errorMessageTagId" filter={(tg) => tg.dataType === 'STRING'} />
+                </div>
+              </div>
+              <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))', marginBottom: 'var(--space-3)' }}>
+                {t('trace.ackErrorHint')}
+              </p>
+            </>
           )}
         </>
       )}
-      {/* PLC Araba Atama (trolley_assign) — Trigger + Shell ID Tag + Slot Tag */}
-      {cap === 'trolley_assign' && (
-        <>
-          <p className="text-muted mb-4" style={{ fontSize: 'var(--font-size-xs)' }}>
-            {t('trace.trolleyAssignDesc')}
-          </p>
 
-          {/* PLC Seçimi */}
-          <Select
-            label={t('trace.plc')}
-            value={config.plcId ?? ''}
-            onChange={(e) => {
-              const v = e.target.value ? Number(e.target.value) : undefined;
-              onChange({ ...config, plcId: v, triggerTagId: undefined, shellIdTagId: undefined, slotTagId: undefined });
-              if (v) onPlcChange(v);
-            }}
-          >
-            {plcs.length === 0 ? (
-              <option value="" disabled>{t('trace.noPlcAvailable')}</option>
-            ) : null}
-            {plcs.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </Select>
-
-          {/* Trigger Biti — yalnız subscribe + BOOL */}
-          <Select
-            label={t('trace.triggerTag')}
-            value={config.triggerTagId ?? ''}
-            onChange={(e) => set('triggerTagId', e.target.value ? Number(e.target.value) : undefined)}
-            disabled={!config.plcId}
-          >
-            {config.plcId && tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').length === 0 ? (
-              <option value="" disabled>{t('trace.noBoolTag')}</option>
-            ) : null}
-            {tags.filter((tg) => tg.acquisitionMode === 'subscribe' && tg.dataType === 'BOOL').map((tg) => (
-              <option key={tg.id} value={tg.id}>{tg.name}</option>
-            ))}
-          </Select>
-
-          <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'calc(-1 * var(--space-2))' }}>
-            {t('trace.triggerSubscribeHint')}
-          </p>
-
-          {/* Shell ID Tag'i */}
-          <Select
-            label={t('trace.shellIdTag')}
-            value={config.shellIdTagId ?? ''}
-            onChange={(e) => set('shellIdTagId', e.target.value ? Number(e.target.value) : undefined)}
-            disabled={!config.plcId}
-          >
-            <option value="">{t('trace.noTag')}</option>
-            {tags.map((tg) => (
-              <option key={tg.id} value={tg.id}>{tg.name}</option>
-            ))}
-          </Select>
-
-          {/* Trolley Slot Numarası Tag'i */}
-          <Select
-            label={t('trace.slotTag')}
-            value={config.slotTagId ?? ''}
-            onChange={(e) => set('slotTagId', e.target.value ? Number(e.target.value) : undefined)}
-            disabled={!config.plcId}
-          >
-            <option value="">{t('trace.noTag')}</option>
-            {tags.map((tg) => (
-              <option key={tg.id} value={tg.id}>{tg.name}</option>
-            ))}
-          </Select>
-        </>
+      {/* trolley_read: otomatik temizleme */}
+      {type === 'trolley_read' && (
+        <div style={{ marginBottom: 'var(--space-3)' }}>
+          <Checkbox
+            label={t('trace.clearOnRead')}
+            checked={config.clearOnRead ?? true}
+            onChange={(e) => set('clearOnRead', e.target.checked)}
+          />
+        </div>
       )}
+
+      <Checkbox label={t('common.active')} checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
     </Modal>
   );
 }

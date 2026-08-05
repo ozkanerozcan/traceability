@@ -4,19 +4,20 @@ import { traceRoutes } from './trace.routes.js';
 import { startPlcDataWatcher } from './plc-data-watcher.js';
 
 /**
- * Ürün İzlenebilirliği Modülü: QR üretimi, istasyon/rota yönetimi, araba okuma,
- * PLC veri toplama (trigger'lı), OK/NOK, bekleme kontrolü, parti bağlama, alarmlar.
- * Capability bazlı istasyon motoru + task management (rota takibi).
+ * Ürün İzlenebilirliği Modülü: QR üretimi, istasyon yönetimi (sabit tipler),
+ * PLC tetikleyicili veri toplama (standart sözleşme: ShellId/TrolleyId/
+ * SlotNumber/RowNumber/Trigger/Data + Ack/ErrorCode/ErrorMessage/Busy),
+ * ölçüm düzenleme (web'den ekle/düzenle/sil), araba eşleştirme, alarmlar.
  */
 const traceabilityModule: IModule = {
   id: 'traceability',
   name: 'Product Traceability',
-  version: '1.1.0',
+  version: '2.0.0',
   dependencies: ['plc-gateway'],
 
   async register(app: FastifyInstance, _options: ModuleOptions): Promise<void> {
     await app.register(traceRoutes, { prefix: '/api/trace' });
-    // PLC Data tetikleyici izleyiciyi başlat (plc_acquire trigger bitleri)
+    // PLC trigger izleyiciyi başlat (tüm PLC'li istasyonlar)
     startPlcDataWatcher();
   },
 };

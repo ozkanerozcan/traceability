@@ -1,43 +1,39 @@
 import type { FastifyInstance } from 'fastify';
-import { createNewProduct, processScan, StationError, type ScanInput } from './station.engine.js';
+import { createNewProduct, handleStationTrigger, StationError, type ManualPayload } from './station.engine.js';
 import { getSetting } from '../system-settings/settings.service.js';
 import {
   acknowledgeAlarm,
-  createProduct,
-  createRoute,
   createStation,
   createTrolley,
+  deleteMeasurement,
   deleteProduct,
   deleteStation,
   deleteTrolley,
   generateProductId,
+  getLastCapture,
+  getLastReadTrolleyCode,
   getProduct,
   getProductByProductId,
   getProductRecords,
-  getRouteSteps,
+  getRuntime,
   getStationByKey,
-  getStationContext,
   getTrolley,
   getTrolleyByCode,
   getTrolleyProductItems,
   getTrolleySlots,
   listAlarms,
-  listBatches,
+  listMeasurements,
   listProducts,
   listQrHistory,
-  listRoutes,
+  listStationMeasurements,
   listStations,
   listTrolleys,
-  logQrPrint,
   nextFreeSlot,
-  parseCapabilities,
   parseConfig,
-  releaseTrolley,
-  setActiveTrolley,
-  clearActiveTrolley,
-  setRouteSteps,
+  updateMeasurement,
   updateStation,
   updateTrolleySlotCount,
+  upsertMeasurement,
   type StationConfig,
 } from './trace.service.js';
 import { reloadPlcDataWatches } from './plc-data-watcher.js';
@@ -56,8 +52,25 @@ function stationDto(row: ReturnType<typeof getStationByKey>) {
     type: row.type,
     sortOrder: row.sort_order,
     isActive: row.is_active === 1,
-    capabilities: parseCapabilities(row.capabilities),
     config: parseConfig(row.config),
+  };
+}
+
+function measurementDto(m: {
+  id: number; shell_id: string; station_key: string; field: string;
+  tag_id: number | null; value_num: number | null; value_text: string | null;
+  source: string; created_at: string; updated_at: string;
+}) {
+  return {
+    id: m.id,
+    shellId: m.shell_id,
+    stationKey: m.station_key,
+    field: m.field,
+    tagId: m.tag_id,
+    value: m.value_num ?? m.value_text,
+    source: m.source,
+    createdAt: m.created_at,
+    updatedAt: m.updated_at,
   };
 }
 
@@ -66,12 +79,13 @@ function handleStationError(reply: any, err: unknown) {
     const status =
       err.code === 'NOT_FOUND' ? 404
       : err.code === 'VALIDATION' ? 400
-      : err.code === 'PLC_CONNECTION_FAILED' ? 502
+      : err.code === 'PLC_READ' ? 502
       : 409;
     return reply.code(status).send({
       statusCode: status,
       error: status === 400 ? 'Bad Request' : status === 404 ? 'Not Found' : status === 502 ? 'Bad Gateway' : 'Conflict',
       code: err.code,
+      errorCode: err.errorCode,
       message: err.message,
       details: err.details,
     });
@@ -87,16 +101,16 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     stations: listStations().map((s) => stationDto(s)),
   }));
 
-  app.post<{ Body: { key: string; name: string; type?: string; capabilities?: string[]; config?: StationConfig } }>(
+  app.post<{ Body: { key: string; name: string; type?: string; config?: StationConfig } }>(
     '/stations',
     { preHandler: [app.requireRole([...CONFIG_ROLES])] },
     async (request, reply) => {
-      const { key, name, type, capabilities, config } = request.body ?? {};
+      const { key, name, type, config } = request.body ?? {};
       if (!key || !name) {
         return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'key ve name gereklidir' });
       }
       try {
-        const station = createStation({ key, name, type, capabilities, config });
+        const station = createStation({ key, name, type, config });
         reloadPlcDataWatches();
         writeAudit({ userId: request.user.sub, username: request.user.username, action: 'create', entityType: 'trace_station', entityId: key, ipAddress: request.ip });
         return reply.code(201).send({ station: stationDto(station) });
@@ -109,7 +123,7 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  app.put<{ Params: { id: string }; Body: Partial<{ name: string; type: string; is_active: boolean; capabilities: string[]; config: StationConfig; sort_order: number }> }>(
+  app.put<{ Params: { id: string }; Body: Partial<{ name: string; type: string; is_active: boolean; config: StationConfig; sort_order: number }> }>(
     '/stations/:id',
     { preHandler: [app.requireRole([...CONFIG_ROLES])] },
     async (request, reply) => {
@@ -135,43 +149,177 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // ─── Rotalar ─────────────────────────────────────────────────────────────
-  app.get('/routes', async () => ({
-    routes: listRoutes().map((r) => ({
-      ...r,
-      isActive: r.is_active === 1,
-      steps: getRouteSteps(r.id).map((s) => s.station_id),
-    })),
-  }));
-
-  app.post<{ Body: { name: string; stationIds?: number[] } }>(
-    '/routes',
-    { preHandler: [app.requireRole([...CONFIG_ROLES])] },
+  // ─── İstasyon tetikleme (manuel — "PLC'den gelmiş gibi" veri girişi) ─────
+  // PLC'li istasyonlarla AYNI handler'lar çalışır; PLC tag okuma/yazma yapılmaz.
+  app.post<{ Params: { key: string }; Body: ManualPayload }>(
+    '/stations/:key/trigger',
     async (request, reply) => {
-      const { name, stationIds } = request.body ?? {};
-      if (!name) {
-        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'Rota adı gereklidir' });
+      const station = getStationByKey(request.params.key);
+      if (!station) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
       }
-      const route = createRoute(name);
-      if (stationIds?.length) setRouteSteps(route.id, stationIds);
-      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'create', entityType: 'trace_route', entityId: String(route.id), ipAddress: request.ip });
-      return reply.code(201).send({ route });
+      try {
+        const result = await handleStationTrigger(station.id, {
+          source: 'manual',
+          manual: request.body ?? {},
+          userId: request.user.sub,
+        });
+        writeAudit({
+          userId: request.user.sub,
+          username: request.user.username,
+          action: 'manual_trigger',
+          entityType: 'trace_station',
+          entityId: station.key,
+          details: { ...(request.body ?? {}), message: result.message },
+          ipAddress: request.ip,
+        });
+        wsManager.broadcast({
+          type: 'system:notification',
+          payload: { notificationType: 'trace', message: result.message ?? `${station.name} işlendi`, severity: 'info' },
+        });
+        return result;
+      } catch (err) {
+        return handleStationError(reply, err);
+      }
     }
   );
 
-  app.put<{ Params: { id: string }; Body: { stationIds?: number[] } }>(
-    '/routes/:id/steps',
-    { preHandler: [app.requireRole([...CONFIG_ROLES])] },
-    async (request, reply) => {
-      const { stationIds } = request.body ?? {};
-      if (!Array.isArray(stationIds)) {
-        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'stationIds dizisi gereklidir' });
+  // ─── İstasyon çalışma bağlamı (runtime — DB'de kalıcı) ───────────────────
+  // İstasyonun son okuduğu arabayı + son yakaladığı veriyi döndürür.
+  // Trolley-Shell Eşleştirme istasyonunda araba, Trolley Okuma'nın kaydettiği
+  // son arabadan alınır.
+  app.get<{ Params: { key: string } }>('/stations/:key/context', async (request, reply) => {
+    const station = getStationByKey(request.params.key);
+    if (!station) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
+    }
+
+    const runtime = getRuntime(station.id);
+    // Eşleştirme istasyonu: kendi runtime'ı yoksa Trolley Okuma'nın son arabası
+    const trolleyCode =
+      runtime.trolley_id ??
+      (station.type === 'trolley_shell_matching' ? getLastReadTrolleyCode() : null);
+
+    let trolley = null;
+    if (trolleyCode) {
+      const t = getTrolleyByCode(trolleyCode);
+      if (t) {
+        trolley = {
+          id: t.id,
+          code: t.code,
+          slotCount: t.slot_count,
+          slots: getTrolleySlots(t.id),
+          nextFreeSlot: nextFreeSlot(t.id, t.slot_count),
+        };
       }
-      setRouteSteps(Number(request.params.id), stationIds);
-      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'update', entityType: 'trace_route', entityId: request.params.id, ipAddress: request.ip });
-      return { success: true };
+    }
+    const trolleyItems = trolley ? getTrolleyProductItems(trolley.id) : [];
+    return { trolley, trolleyItems, lastCapture: getLastCapture(station.id) };
+  });
+
+  // ─── Ölçümler (web'den görüntüleme/ekleme/düzenleme/silme) ───────────────
+
+  // Bir shell'in ölçümleri (isteğe bağlı istasyon filtresi)
+  app.get<{ Params: { productId: string }; Querystring: { stationKey?: string } }>(
+    '/shells/:productId/measurements',
+    async (request) => ({
+      measurements: listMeasurements(request.params.productId, request.query.stationKey).map(measurementDto),
+    })
+  );
+
+  // Bir istasyonun son ölçümleri (istasyon sayfası "son ölçümler" listesi)
+  app.get<{ Params: { key: string }; Querystring: { limit?: string } }>(
+    '/stations/:key/measurements',
+    async (request) => ({
+      measurements: listStationMeasurements(
+        request.params.key,
+        request.query.limit ? Number(request.query.limit) : 20
+      ).map(measurementDto),
+    })
+  );
+
+  // Manuel ölçüm girişi (PLC'den gelmemiş veriyi web'den doldurma)
+  app.post<{ Body: { shellId?: string; stationKey?: string; field?: string; value?: number | string } }>(
+    '/measurements',
+    async (request, reply) => {
+      const { shellId, stationKey, field, value } = request.body ?? {};
+      if (!shellId?.trim() || !stationKey?.trim() || !field?.trim() || value === undefined || value === null || value === '') {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'shellId, stationKey, field ve value gereklidir' });
+      }
+      const product = getProductByProductId(shellId.trim());
+      if (!product) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: `Shell kayıtlı değil: ${shellId}` });
+      }
+      const station = getStationByKey(stationKey.trim());
+      if (!station) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: `İstasyon bulunamadı: ${stationKey}` });
+      }
+      const num = typeof value === 'string' ? Number(value) : NaN;
+      const finalValue = typeof value === 'number' ? value : Number.isFinite(num) && value.trim() !== '' ? num : String(value);
+      upsertMeasurement({
+        shellId: product.product_id,
+        stationKey: station.key,
+        field: field.trim(),
+        value: finalValue,
+        source: 'manual',
+      });
+      writeAudit({
+        userId: request.user.sub,
+        username: request.user.username,
+        action: 'create',
+        entityType: 'trace_measurement',
+        entityId: `${product.product_id}/${station.key}/${field.trim()}`,
+        details: { value: finalValue },
+        ipAddress: request.ip,
+      });
+      const list = listMeasurements(product.product_id, station.key).map(measurementDto);
+      return reply.code(201).send({ ok: true, measurements: list });
     }
   );
+
+  // Ölçüm düzenleme
+  app.put<{ Params: { id: string }; Body: { value?: number | string } }>(
+    '/measurements/:id',
+    async (request, reply) => {
+      const { value } = request.body ?? {};
+      if (value === undefined || value === null || value === '') {
+        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'value gereklidir' });
+      }
+      const num = typeof value === 'string' ? Number(value) : NaN;
+      const finalValue = typeof value === 'number' ? value : Number.isFinite(num) && String(value).trim() !== '' ? num : String(value);
+      const updated = updateMeasurement(Number(request.params.id), finalValue);
+      if (!updated) {
+        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ölçüm bulunamadı' });
+      }
+      writeAudit({
+        userId: request.user.sub,
+        username: request.user.username,
+        action: 'update',
+        entityType: 'trace_measurement',
+        entityId: request.params.id,
+        details: { value: finalValue },
+        ipAddress: request.ip,
+      });
+      return { measurement: measurementDto(updated) };
+    }
+  );
+
+  // Ölçüm silme
+  app.delete<{ Params: { id: string } }>('/measurements/:id', async (request, reply) => {
+    const deleted = deleteMeasurement(Number(request.params.id));
+    if (!deleted) {
+      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ölçüm bulunamadı' });
+    }
+    writeAudit({
+      userId: request.user.sub,
+      username: request.user.username,
+      action: 'delete',
+      entityType: 'trace_measurement',
+      entityId: `${deleted.shell_id}/${deleted.station_key}/${deleted.field}`,
+      ipAddress: request.ip,
+    });
+    return { success: true };
+  });
 
   // ─── Arabalar ────────────────────────────────────────────────────────────
   app.get('/trolleys', async () => ({
@@ -249,83 +397,6 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // ─── İstasyon çalışma bağlamı (trolley_read: araba onayı) ───────────────
-  // Operatör istasyon sayfasında arabayı onaylar → AKTİF araba olur (sabit).
-  app.post<{ Params: { key: string }; Body: { trolleyCode?: string } }>(
-    '/stations/:key/trolley',
-    async (request, reply) => {
-      const station = getStationByKey(request.params.key);
-      if (!station) {
-        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
-      }
-      const code = request.body?.trolleyCode?.trim();
-      if (!code) {
-        return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'trolleyCode gereklidir' });
-      }
-      const trolley = getTrolleyByCode(code);
-      if (!trolley) {
-        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: `Araba bulunamadı: ${code}` });
-      }
-      // Yalnızca İLK/yükleme istasyonunda (clearOnRead !== false) önceki içerik
-      // OTOMATİK temizlenir. Sonraki istasyonlar yüklü arabayı okur — temizlenmez.
-      // (slot_count her durumda kalıcı — dokunulmaz.) Sonra AKTİF araba yap.
-      const stConfig = parseConfig(station.config);
-      if (stConfig.clearOnRead !== false) {
-        releaseTrolley(trolley.id);
-      }
-      setActiveTrolley(station.id, trolley.id, trolley.code);
-      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'confirm', entityType: 'trace_trolley', entityId: trolley.code, details: { stationKey: station.key }, ipAddress: request.ip });
-      return {
-        ok: true,
-        trolley: {
-          id: trolley.id,
-          code: trolley.code,
-          slotCount: trolley.slot_count,
-          slots: getTrolleySlots(trolley.id),
-          nextFreeSlot: nextFreeSlot(trolley.id, trolley.slot_count),
-        },
-      };
-    }
-  );
-
-  // Araba Değiştir — istasyonun aktif arabasını kaldır
-  app.delete<{ Params: { key: string } }>(
-    '/stations/:key/trolley',
-    async (request, reply) => {
-      const station = getStationByKey(request.params.key);
-      if (!station) {
-        return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
-      }
-      clearActiveTrolley(station.id);
-      writeAudit({ userId: request.user.sub, username: request.user.username, action: 'edit', entityType: 'trace_station_context', entityId: station.key, details: { action: 'clear_trolley' }, ipAddress: request.ip });
-      return reply.send({ success: true });
-    }
-  );
-
-  // İstasyonun mevcut çalışma bağlamı (UI geri yükleme için)
-  app.get<{ Params: { key: string } }>('/stations/:key/context', async (request, reply) => {
-    const station = getStationByKey(request.params.key);
-    if (!station) {
-      return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'İstasyon bulunamadı' });
-    }
-    const ctx = getStationContext(station.id);
-    let trolley = null;
-    if (ctx.trolleyId) {
-      const t = getTrolleyByCode(ctx.trolleyCode ?? '');
-      if (t) {
-        trolley = {
-          id: t.id,
-          code: t.code,
-          slotCount: t.slot_count,
-          slots: getTrolleySlots(t.id),
-          nextFreeSlot: nextFreeSlot(t.id, t.slot_count),
-        };
-      }
-    }
-    const trolleyItems = trolley ? getTrolleyProductItems(trolley.id) : [];
-    return { trolley, trolleyItems, productId: ctx.productId, lastCapture: ctx.lastCapture };
-  });
-
   // ─── Ürünler ─────────────────────────────────────────────────────────────
   app.post('/products', async (request, reply) => {
     const result = await createNewProduct(request.user.sub);
@@ -334,7 +405,7 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       username: request.user.username,
       action: 'create',
       entityType: 'trace_product',
-      entityId: result.product.product_id,
+      entityId: result.product!.product_id,
       ipAddress: request.ip,
     });
     return reply.status(201).send(result);
@@ -349,7 +420,11 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     if (!product) {
       return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ürün bulunamadı' });
     }
-    return { product, records: getProductRecords(product.product_id) };
+    return {
+      product,
+      records: getProductRecords(product.product_id),
+      measurements: listMeasurements(product.product_id).map(measurementDto),
+    };
   });
 
   app.delete<{ Params: { id: string } }>('/products/:id', async (request, reply) => {
@@ -373,37 +448,6 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true });
   });
 
-  // ─── Tarama (ana işlem noktası) ──────────────────────────────────────────
-  app.post<{ Body: ScanInput }>('/scan', async (request, reply) => {
-    const input = request.body;
-    if (!input?.stationKey) {
-      return reply.code(400).send({ statusCode: 400, error: 'Bad Request', message: 'stationKey gereklidir' });
-    }
-    try {
-      const result = await processScan(input, request.user.sub);
-      writeAudit({
-        userId: request.user.sub,
-        username: request.user.username,
-        action: 'scan',
-        entityType: 'trace_station',
-        entityId: input.stationKey,
-        details: { productId: result.productId, advanced: result.advanced },
-        ipAddress: request.ip,
-      });
-      wsManager.broadcast({
-        type: 'system:notification',
-        payload: {
-          notificationType: 'trace',
-          message: result.message ?? `${input.stationKey} işlendi`,
-          severity: result.alarm ? 'warning' : 'info',
-        },
-      });
-      return result;
-    } catch (err) {
-      return handleStationError(reply, err);
-    }
-  });
-
   app.get('/next-shell-id', async () => ({
     shellId: generateProductId(),
   }));
@@ -415,7 +459,6 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ statusCode: 404, error: 'Not Found', message: 'Ürün bulunamadı' });
     }
     const { path, size } = qrToSvgPath(product.qr_content ?? product.product_id);
-    logQrPrint(product.product_id, product.qr_content ?? product.product_id, request.user.sub);
     return { productId: product.product_id, svgPath: path, size };
   });
 
@@ -433,11 +476,6 @@ export async function traceRoutes(app: FastifyInstance): Promise<void> {
         createdAt: (p as { created_at?: string }).created_at ?? null,
       };
     }),
-  }));
-
-  // ─── Parti numaraları ────────────────────────────────────────────────────
-  app.get<{ Querystring: { kind?: string } }>('/batches', async (request) => ({
-    batches: listBatches(request.query.kind),
   }));
 
   // ─── Alarmlar ────────────────────────────────────────────────────────────
